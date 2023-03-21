@@ -618,14 +618,12 @@ mod geode_social {
         // 🟢 ELEVATE PAID MESSAGE
         // endorses a paid message and pays the endorser accordingly
         // 🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑 
-        // expected `Result<(), ...>`, found `Result<(), Error>`
         // expected `Result<(), ReentrancyGuardError>` because of return type
         // expected enum `Result<_, ReentrancyGuardError>` found enum `Result<_, geode_social::Error>`
-        // try crate::openbrush::traits::errors::ReentrancyGuardError
         #[ink(message)]
         #[openbrush::modifiers(non_reentrant)]
         pub fn elevate_paid_message(&mut self, owner: AccountId, this_message_id: Hash
-        ) -> Result<(), crate::geode_social::ReentrancyGuardError> {
+        ) -> Result<(), ReentrancyGuardError> {
 
             // Does the message_id exist in the paid_message_map? If TRUE then...
             if self.paid_message_map.contains(&this_message_id) {

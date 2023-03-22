@@ -540,7 +540,7 @@ mod geode_social {
             }
             // else, if it does not already exist, add it to the target_interests_vec
             else {
-                self.target_interests_vec.push(interests);
+                self.target_interests_vec.push(interests.clone());
             }
 
             // emit an event to register the post to the chain
@@ -623,7 +623,7 @@ mod geode_social {
         #[ink(message)]
         #[openbrush::modifiers(non_reentrant)]
         pub fn elevate_paid_message(&mut self, owner: AccountId, this_message_id: Hash
-        ) -> Result<(), ReentrancyGuardError> {
+        ) -> Result<(), Error> {
 
             // Does the message_id exist in the paid_message_map? If TRUE then...
             if self.paid_message_map.contains(&this_message_id) {
@@ -1151,7 +1151,7 @@ mod geode_social {
             // for every interest in the target_interests_map (as represented by the target interests vector)...
             for target in self.target_interests_vec.iter() {
                 // check to see if the caller's interests include the target_interests
-                let caller_interests_string = String::from_utf8(caller_interests).unwrap_or_default();
+                let caller_interests_string = String::from_utf8(caller_interests.clone()).unwrap_or_default();
                 let targetvecu8 = target.clone();
                 let target_string = String::from_utf8(targetvecu8).unwrap_or_default();
                 

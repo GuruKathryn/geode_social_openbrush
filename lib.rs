@@ -19,6 +19,7 @@ mod geode_social {
     use ink::prelude::vec;
     use ink::prelude::string::String;
     use ink::storage::Mapping;
+    use ink::env::hash::{Sha2x256, HashOutput};
     use openbrush::{
         contracts::{
             reentrancy_guard::*,
@@ -39,33 +40,23 @@ mod geode_social {
         )
     )]
     pub struct Settings {
+        username: Vec<u8>,
         interests: Vec<u8>,
-        password: Vec<u8>,
-        bio: Vec<u8>,
-        photo_url: Vec<u8>,
+        max_feed: u128,
+        max_paid_feed: u128,
+        last_update: u64
     }
 
     impl Default for Settings {
         fn default() -> Settings {
             Settings {
-              interests: <Vec<u8>>::default(),
-              password: <Vec<u8>>::default(),
-              bio: <Vec<u8>>::default(),
-              photo_url: <Vec<u8>>::default(),
+                username: <Vec<u8>>::default(),
+                interests: <Vec<u8>>::default(),
+                max_feed: 1000,
+                max_paid_feed: 1000,
+                last_update: u64::default()
             }
         }
-    }
-
-    #[derive(Clone, scale::Decode, scale::Encode)]
-    #[cfg_attr(feature = "std",
-        derive(ink::storage::traits::StorageLayout, 
-            scale_info::TypeInfo, Debug, PartialEq, Eq
-        )
-    )]
-    pub struct PublicSettings {
-        interests: Vec<u8>,
-        bio: Vec<u8>,
-        photo_url: Vec<u8>,
     }
 
     #[derive(Clone, scale::Decode, scale::Encode)]
@@ -147,49 +138,35 @@ mod geode_social {
         )
     )]
     pub struct PaidMessageDetails {
+        message_id: Hash,
         from: AccountId,
         message: Vec<u8>,
-        endorsers: Vec<AccountId>,
+        link: Vec<u8>,
+        endorser_count: u128,
         timestamp: u64,
         paid_endorser_max: u128,
         endorser_payment: Balance,
         target_interests: Vec<u8>,
         total_staked: Balance,
+        endorsers: Vec<AccountId>,
     }
 
     impl Default for PaidMessageDetails {
         fn default() -> PaidMessageDetails {
             PaidMessageDetails {
+                message_id: Hash::default(),
                 from: ZERO_ADDRESS.into(),
                 message: <Vec<u8>>::default(),
-                endorsers: <Vec<AccountId>>::default(),
+                link: <Vec<u8>>::default(),
+                endorser_count: 0,
                 timestamp: u64::default(),
                 paid_endorser_max: u128::default(),
                 endorser_payment: Balance::default(),
                 target_interests: <Vec<u8>>::default(),
                 total_staked: Balance::default(),
+                endorsers: <Vec<AccountId>>::default(),
             }
         }
-    }
-
-
-    #[derive(Clone, scale::Decode, scale::Encode)]
-    #[cfg_attr(feature = "std",
-        derive(ink::storage::traits::StorageLayout, 
-            scale_info::TypeInfo, Debug, PartialEq, Eq
-        )
-    )]
-    pub struct ReturnPaidMessageDetails {
-        message_id: Hash,
-        from: AccountId,
-        message: Vec<u8>,
-        timestamp: u64,
-        paid_endorser_max: u128,
-        endorser_payment: Balance,
-        target_interests: Vec<u8>,
-        total_staked: Balance,
-        endorser_count: u128,
-        endorsers: Vec<AccountId>,
     }
 
 
@@ -200,36 +177,27 @@ mod geode_social {
         )
     )]
     pub struct MessageDetails {
+        message_id: Hash,
         from: AccountId,
         message: Vec<u8>,
-        endorsers: Vec<AccountId>,
-        timestamp: u64
+        link: Vec<u8>,
+        endorser_count: u128,
+        timestamp: u64,
+        endorsers: Vec<AccountId>
     }
 
     impl Default for MessageDetails {
         fn default() -> MessageDetails {
             MessageDetails {
+                message_id: Hash::default(),
                 from: ZERO_ADDRESS.into(),
                 message: <Vec<u8>>::default(),
-                endorsers: <Vec<AccountId>>::default(),
+                link: <Vec<AccountId>>::default(),
+                endorser_count: 0,
                 timestamp: u64::default(),
+                endorsers: <Vec<AccountId>>::default(),
             }
         }
-    }
-
-    #[derive(Clone, scale::Decode, scale::Encode)]
-    #[cfg_attr(feature = "std",
-        derive(ink::storage::traits::StorageLayout, 
-            scale_info::TypeInfo, Debug, PartialEq, Eq
-        )
-    )]
-    pub struct ReturnMessageDetails {
-        message_id: Hash,
-        from: AccountId,
-        message: Vec<u8>,
-        timestamp: u64,
-        endorser_count: u128,
-        endorsers: Vec<AccountId>,
     }
 
 
@@ -244,6 +212,7 @@ mod geode_social {
         message: Vec<u8>,
         #[ink(topic)]
         message_id: Hash,
+        link: Vec<u8>,
         timestamp: u64
     }
 
@@ -256,6 +225,7 @@ mod geode_social {
         message: Vec<u8>,
         #[ink(topic)]
         message_id: Hash,
+        link: Vec<u8>,
         reply_to_message_id: Hash,
         timestamp: u64
     }
@@ -269,6 +239,7 @@ mod geode_social {
         message: Vec<u8>,
         #[ink(topic)]
         message_id: Hash,
+        link: Vec<u8>,
         timestamp: u64,
         paid_endorser_max: u128,
         endorser_payment: Balance,
@@ -315,6 +286,8 @@ mod geode_social {
         NonexistentPaidMessage,
         // Elevating the same message twice
         DuplicateEndorsement,
+        // trying to update your interest before 24 hours have past
+        CannotUpdateInterestsWithin24Hours,
         // Too many interests in your list
         InterestsTooLong,
         // Trying to endorse a paid message outside your interests
@@ -327,6 +300,8 @@ mod geode_social {
         EndorserPayoutFailed,
         // Reentrancy Guard error
         ReentrancyError(ReentrancyGuardError),
+        // Returned if the username already belongs to someone else.
+        UsernameTaken
     }
 
     impl From<ReentrancyGuardError> for Error {
@@ -355,6 +330,7 @@ mod geode_social {
         target_interests_map: Mapping<Vec<u8>, Messages>,
         target_interests_vec: Vec<Vec<u8>>,
         message_reply_map: Mapping<Hash, Messages>,
+        username_map: Mapping<Vec<u8>, AccountId>,
     }
 
 
@@ -381,6 +357,7 @@ mod geode_social {
                 target_interests_map: Mapping::default(),
                 target_interests_vec: <Vec<Vec<u8>>>::default(),
                 message_reply_map: Mapping::default(),
+                username_map: Mapping::default(),
             }
         }
 
@@ -389,17 +366,31 @@ mod geode_social {
         
         // 🟢 SEND MESSAGE PUBLIC
         // sends a broadcast public message on the chain
-        // new_message_id is any unique hash 
+         
         #[ink(message)]
-        pub fn send_message_public (&mut self, new_message: Vec<u8>, new_message_id: Hash
+        pub fn send_message_public (&mut self, new_message: Vec<u8>, photo_or_other_link: Vec<u8>
         ) -> Result<(), Error> {
+
+            // set up the data that will go into the new_message_id
+            let from = Self::env().caller();
+            let new_timestamp = self.env().block_timestamp();
+
+            // create the new_message_id by hashing the above data
+            let encodable = (from, new_message, new_timestamp); // Implements `scale::Encode`
+            let mut new_message_id_u8 = <Sha2x256 as HashOutput>::Type::default(); // 256-bit buffer
+            ink::env::hash_encoded::<Sha2x256, _>(&encodable, &mut new_message_id_u8);
+            let new_message_id: Hash = Hash::from(new_message_id_u8);
+
             // set up the message details
             let new_message_clone = new_message.clone();
             let new_details = MessageDetails {
+                message_id: new_message_id,
                 from: Self::env().caller(),
                 message: new_message_clone,
-                endorsers: vec![Self::env().caller()],
-                timestamp: self.env().block_timestamp()
+                link: photo_or_other_link,
+                endorser_count: 0,
+                timestamp: self.env().block_timestamp(),
+                endorsers: vec![Self::env().caller()]
             };
 
             // add the message id and its details to the message_map
@@ -416,10 +407,13 @@ mod geode_social {
             self.account_messages_map.insert(&caller, &current_messages);
 
             // emit an event to register the post to the chain
+            let new_message_clone2 = new_message.clone();
+            let link_clone = photo_or_other_link.clone();
             Self::env().emit_event(MessageBroadcast {
                 from: Self::env().caller(),
-                message: new_message,
+                message: new_message_clone2,
                 message_id: new_message_id,
+                link: link_clone,
                 timestamp: self.env().block_timestamp()
             });
             
@@ -429,20 +423,32 @@ mod geode_social {
 
         // 🟢 SEND REPLY PUBLIC 
         // sends a reply to a specific public message on the chain
-        // new_message_id is any unique hash 
         #[ink(message)]
         pub fn send_reply_public (&mut self, 
             reply_to: Hash,
             new_message: Vec<u8>, 
-            new_message_id: Hash
+            photo_or_other_link: Vec<u8>
         ) -> Result<(), Error> {
             
+            // set up the data that will go into the new_message_id
+            let from = Self::env().caller();
+            let new_timestamp = self.env().block_timestamp();
+
+            // create the new_message_id by hashing the above data
+            let encodable = (from, new_message, new_timestamp); // Implements `scale::Encode`
+            let mut new_message_id_u8 = <Sha2x256 as HashOutput>::Type::default(); // 256-bit buffer
+            ink::env::hash_encoded::<Sha2x256, _>(&encodable, &mut new_message_id_u8);
+            let new_message_id: Hash = Hash::from(new_message_id_u8);
+
             // UPDATE THE MESSAGE_MAP
             // set up the message details
             let new_message_clone = new_message.clone();
             let new_details = MessageDetails {
+                message_id: new_message_id,
                 from: Self::env().caller(),
                 message: new_message_clone,
+                link: photo_or_other_link,
+                endorser_count: 0,
                 endorsers: vec![Self::env().caller()],
                 timestamp: self.env().block_timestamp()
             };
@@ -467,10 +473,13 @@ mod geode_social {
             self.message_reply_map.insert(&reply_to, &current_replies);
             
             // emit an event to register the post to the chain
+            let new_message_clone2 = new_message.clone();
+            let link_clone = photo_or_other_link.clone();
             Self::env().emit_event(ReplyMessageBroadcast {
                 from: Self::env().caller(),
                 message: new_message,
                 message_id: new_message_id,
+                link: link_clone,
                 reply_to_message_id: reply_to,
                 timestamp: self.env().block_timestamp()
             });
@@ -482,36 +491,46 @@ mod geode_social {
         // 🟢 SEND PAID MESSAGE PUBLIC
         // sends a public broadcast message post
         // and offers coin to the first X accounts to endorse the post
-        // new_message_id is any unique hash
         #[ink(message, payable)]
         pub fn send_paid_message_public (&mut self, 
-            new_message: Vec<u8>, 
-            new_message_id: Hash,
-            new_paid_endorser_max: u128,
-            interests: Vec<u8>
+            new_message: Vec<u8>,
+            photo_or_other_link: Vec<u8>,
+            maximum_number_of_paid_endorsers: u128,
+            target_interests: Vec<u8>
         ) -> Result<(), Error> {
 
+            // set up the data that will go into the new_message_id
+            let from = Self::env().caller();
+            let new_timestamp = self.env().block_timestamp();
+
+            // create the new_message_id by hashing the above data
+            let encodable = (from, new_message, new_timestamp); // Implements `scale::Encode`
+            let mut new_message_id_u8 = <Sha2x256 as HashOutput>::Type::default(); // 256-bit buffer
+            ink::env::hash_encoded::<Sha2x256, _>(&encodable, &mut new_message_id_u8);
+            let new_message_id: Hash = Hash::from(new_message_id_u8);
+
             // collect payment from the caller to fund this paid post
-            // the 'payable' tag on this message allows the user to
-            // send as much or as little as they like so the front end
-            // will have to show the user how much that will be per endorser
+            // the 'payable' tag on this message allows the user to send any amount
+            // so we determine here what that will give each endorser
             let staked: Balance = self.env().transferred_value();
 
             // set the payment per endorser based on the actual staked amount
-            let payment_per_endorser: Balance = staked / new_paid_endorser_max;
+            let payment_per_endorser: Balance = staked / maximum_number_of_paid_endorsers;
 
             // set up the paid message details
-            let interestsclone = interests.clone();
             let new_message_clone = new_message.clone();
             let new_details = PaidMessageDetails {
+                    message_id: new_message_id,
                     from: Self::env().caller(),
                     message: new_message_clone,
-                    endorsers: vec![Self::env().caller()],
+                    link: photo_or_other_link,
+                    endorser_count: 0,
                     timestamp: self.env().block_timestamp(),
-                    paid_endorser_max: new_paid_endorser_max,
+                    paid_endorser_max: maximum_number_of_paid_endorsers,
                     endorser_payment: payment_per_endorser,
-                    target_interests: interestsclone,
+                    target_interests: target_interests,
                     total_staked: staked,
+                    endorsers: vec![Self::env().caller()],
             };
             
             // add the message id and its details to the paid message_map
@@ -526,32 +545,37 @@ mod geode_social {
 
             // update the target_interests_map
             // get the current set of messages that match this target
-            let mut matching_messages = self.target_interests_map.get(&interests).unwrap_or_default();
+            let mut matching_messages = self.target_interests_map.get(&target_interests).unwrap_or_default();
             // add the new message to the list
             matching_messages.messages.push(new_message_id);
             // update the mapping
-            self.target_interests_map.insert(&interests, &matching_messages);
+            self.target_interests_map.insert(&target_interests, &matching_messages);
 
             // update the target_interests_vec
             // check to see if this target_interests already exists in the vector
-            if self.target_interests_vec.contains(&interests) {
+            if self.target_interests_vec.contains(&target_interests) {
                 // if it already, exists, do nothing... but if you have to do something
                 // let x = 0;
             }
             // else, if it does not already exist, add it to the target_interests_vec
             else {
-                self.target_interests_vec.push(interests.clone());
+                self.target_interests_vec.push(target_interests.clone());
             }
 
             // emit an event to register the post to the chain
+            let interests_clone = target_interests.clone();
+            let link_clone = photo_or_other_link.clone();
+            let new_message_clone2 = new_message.clone();
+
             Self::env().emit_event(PaidMessageBroadcast {
                 from: Self::env().caller(),
-                message: new_message,
+                message: new_message_clone2,
                 message_id: new_message_id,
+                link: link_clone,
                 timestamp: self.env().block_timestamp(),
-                paid_endorser_max: new_paid_endorser_max,
+                paid_endorser_max: maximum_number_of_paid_endorsers,
                 endorser_payment: payment_per_endorser,
-                target_interests: interests,
+                target_interests: interests_clone,
                 total_staked: staked
             });
 
@@ -588,8 +612,22 @@ mod geode_social {
                     // Update the MessageDetails for this message in the message_map
                     // Add this endorser to the vector of endorsing accounts
                     current_details.endorsers.push(caller);
+                    // update the endorser count
+                    let new_endorser_count = current_details.endorser_count + 1;
+
+                    // Update the details in storage for this message
+                    let updated_details: MessageDetails = MessageDetails {
+                        message_id: current_details.message_id,
+                        from: current_details.from,
+                        message: current_details.message,
+                        link: current_details.link,
+                        endorser_count: new_endorser_count,
+                        timestamp: current_details.timestamp,
+                        endorsers: current_details.endorsers
+                    };
+
                     // Update the message_map
-                    self.message_map.insert(&this_message_id, &current_details);
+                    self.message_map.insert(&this_message_id, &updated_details);
 
                     // Add this message to the account_elevated_map for this caller
                     let mut current_elevated = self.account_elevated_map.get(&caller).unwrap_or_default();
@@ -649,13 +687,32 @@ mod geode_social {
                         
                         // Has this paid message hit its limit on paid endorsements?
                         let max_endorsements = current_details.paid_endorser_max;
-                        let current_endorsement_number: u128 = current_details.endorsers.len().try_into().unwrap();
+                        let current_endorsement_number: u128 = current_details.endorser_count;
                         if current_endorsement_number < max_endorsements {
                             
                             // Add this endorser to the vector of endorsing accounts
                             current_details.endorsers.push(caller);
+
+                            // update the endorser count
+                            let new_endorser_count = current_details.endorser_count + 1;
+
+                            // Update the details in storage for this paid message
+                            let updated_details: PaidMessageDetails = PaidMessageDetails {
+                                message_id: current_details.message_id,
+                                from: current_details.from,
+                                message: current_details.message,
+                                link: current_details.link,
+                                endorser_count: new_endorser_count,
+                                timestamp: current_details.timestamp,
+                                paid_endorser_max: current_details.paid_endorser_max,
+                                endorser_payment: current_details.endorser_payment,
+                                target_interests: current_details.target_interests,
+                                total_staked: current_details.total_staked,
+                                endorsers: current_details.endorsers
+                            };
+
                             // Update the paid_message_map
-                            self.paid_message_map.insert(&this_message_id, &current_details);
+                            self.paid_message_map.insert(&this_message_id, &updated_details);
 
                             // add this message to the account_paid_elevated_map
                             let mut current_elevated = self.account_paid_elevated_map.get(&caller).unwrap_or_default();
@@ -777,24 +834,65 @@ mod geode_social {
 
 
         // 🟢 UPDATE SETTINGS 
-        // allows a user to update their list of keyword interests, bio and photo_url 
+        // lets a user to update their list of keyword interests and other settings 
         // overwrites the mapping in contract storage
         #[ink(message)]
         pub fn update_settings (&mut self, 
-            updated_interests: Vec<u8>,
-            updated_password: Vec<u8>,
-            updated_bio: Vec<u8>,
-            updated_photo_url: Vec<u8>,
+            my_username: Vec<u8>,
+            my_interests: Vec<u8>,
+            max_messages_in_my_feed: u128,
+            max_messages_in_my_paid_feed: u128,
         ) -> Result<(), Error> {
-            // Update (overwrite) the settings for this caller
+
+            // get the current settings for this caller and prepare the update
             let caller = Self::env().caller();
+            let current_settings = self.account_settings_map.get(&caller).unwrap_or_default();
             let settings_update: Settings = Settings {
-                interests: updated_interests,
-                password: updated_password,
-                bio: updated_bio,
-                photo_url: updated_photo_url,
+                username: my_username,
+                interests: my_interests,
+                max_feed: max_messages_in_my_feed,
+                max_paid_feed: max_messages_in_my_paid_feed,
+                last_update: self.env().block_timestamp()
             };
-            self.account_settings_map.insert(&caller, &settings_update);
+            
+            // check that this user has not updated their settings in 24 hours
+            let time_since_last_update = self.env().block_timestamp() - current_settings.last_update;
+            if time_since_last_update < 86400000 {
+                // send an error that interest cannot be updated so soon
+                return Err(Error::CannotUpdateInterestsWithin24Hours)
+            }
+            else {
+                // check that the set of interest keywords are not too long
+                // maximum length is 600 which would give us 300 characters
+                let interests_length = my_interests.len();
+                if interests_length > 600 {
+                    // intrests are too long, send an error
+                    return Err(Error::InterestsTooLong)
+                }
+                else {
+                    // check that the username is not taken by someone else...
+                    let username_clone1 = my_username.clone();
+                    let username_clone2 = my_username.clone();
+                    // if the username is in use already...
+                    if self.username_map.contains(username_clone1) {
+                        // get the account that owns that username
+                        let current_owner = self.username_map.get(&username_clone2).unwrap();
+                        // if the caller owns that username, update the storage map
+                        if current_owner == caller {
+                            self.account_settings_map.insert(&caller, &settings_update);
+                        }
+                        else {
+                            // if the username belongs to someone else, send an error UsernameTaken
+                            return Err(Error::UsernameTaken)
+                        }
+                    }
+                    else {
+                        // if the username is not already in use, update the storage map
+                        self.account_settings_map.insert(&caller, &settings_update);
+                    }
+                }
+                
+            }
             
             Ok(())
         }
@@ -804,136 +902,60 @@ mod geode_social {
         // >>>>>>>>>>>>>>>>>>>>>>>>>> PRIMARY GET MESSAGES <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
         // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
  
+
         // 🟢 GET ACCOUNT SETTINGS
-        // get the current settings for a given AccountId (but don't show the password)
+        // get the current settings for a given AccountId
         #[ink(message)]
-        pub fn get_account_settings(&self, user: AccountId) -> PublicSettings {
+        pub fn get_account_settings(&self, user: AccountId) -> Settings {
             let current_settings = self.account_settings_map.get(&user).unwrap_or_default();
-            let current_interests = current_settings.interests;
-            let current_bio = current_settings.bio;
-            let current_photo_url = current_settings.photo_url;
-            let public_settings = PublicSettings {
-                interests: current_interests,
-                bio: current_bio,
-                photo_url: current_photo_url,
-            };
-            public_settings
+            current_settings
         }
 
-
-        // 🟢 GET ACCOUNT MESSAGES
-        // given an accountId, returns the details of every unpaid message sent by that account
+        // 🟢 GET THE FULL PROFILE FOR ANY GIVEN ACCOUNT
+        // get all the info and messages related to a single account
+        // Followers, Following, All messages sent and elevated/endorsed
         #[ink(message)]
-        pub fn get_account_messages(&self, user: AccountId) -> Vec<ReturnMessageDetails> {
+        pub fn get_account_profile(&self, user: AccountId) -> 
+        (Followers, Following, Vec<MessageDetails>) {
+            // set up the return data structures
+            let mut message_list: Vec<MessageDetails> = Vec::new();
+            let followers_list = self.account_followers_map.get(&user).unwrap_or_default();
+            let following_list = self.account_following_map.get(&user).unwrap_or_default();
+            // get the vector of sent message_ids
             let message_idvec = self.account_messages_map.get(&user).unwrap_or_default().messages;
-            let mut message_list: Vec<ReturnMessageDetails> = Vec::new();
             for messageidhash in message_idvec.iter() {
                 // get the details for that message
                 let details = self.message_map.get(&messageidhash).unwrap_or_default();
-                let endorsers_length = details.endorsers.len();
-                let endorsement_count = u128::try_from(endorsers_length).unwrap() - 1;
-                // package them in the ReturnMessageDetails format
-                let return_details = ReturnMessageDetails {
-                    message_id: *messageidhash,
-                    from: details.from,
-                    message: details.message,
-                    timestamp: details.timestamp,
-                    endorser_count: endorsement_count,
-                    endorsers: details.endorsers,
-                };
                 // add the details to the message_list vector
-                message_list.push(return_details);
+                message_list.push(details);
             }
-            // return the vector of message details
-            message_list
-        }
-
-
-        // 🟢 GET ACCOUNT PAID MESSAGES
-        // given an accountId, returns the details of every paid message sent by that account
-        #[ink(message)]
-        pub fn get_account_paid_messages(&self, user: AccountId) -> Vec<ReturnPaidMessageDetails> {
-            let message_idvec = self.account_paid_messages_map.get(&user).unwrap_or_default().messages;
-            let mut message_list: Vec<ReturnPaidMessageDetails> = Vec::new();
-            for messageidhash in message_idvec.iter() {
-                // get the details for that message
-                let details = self.paid_message_map.get(&messageidhash).unwrap_or_default();
-                let endorsers_length = details.endorsers.len();
-                let endorsement_count = u128::try_from(endorsers_length).unwrap() - 1;
-                // package them in the ReturnPaidMessageDetails format
-                let return_details = ReturnPaidMessageDetails {
-                    message_id: *messageidhash,
-                    from: details.from,
-                    message: details.message,
-                    timestamp: details.timestamp,
-                    paid_endorser_max: details.paid_endorser_max,
-                    endorser_payment: details.endorser_payment,
-                    target_interests: details.target_interests,
-                    total_staked: details.total_staked,
-                    endorser_count: endorsement_count,
-                    endorsers: details.endorsers,
-                };
-                // add the details to the message_list vector
-                message_list.push(return_details);
-            }
-            // return the vector of message details
-            message_list
-        }
-
-
-        // 🟢 GET ACCOUNT ENDORSED MESSAGES
-        // given an accountId, returns the details of every unpaid message they endorsed/elevated
-        #[ink(message)]
-        pub fn get_account_endorsed_messages(&self, user: AccountId) -> Vec<ReturnMessageDetails> {
-            let message_idvec:Vec<Hash> = self.account_elevated_map.get(&user).unwrap_or_default().elevated;
-            let mut message_list: Vec<ReturnMessageDetails> = Vec::new();
-            for messageidhash in message_idvec.iter() {
+            // get the vector of endorsed messasge_ids
+            let elevated_idvec = self.account_elevated_map.get(&user).unwrap_or_default().elevated;
+            for messageidhash in elevated_idvec.iter() {
                 // get the details for that message
                 let details = self.message_map.get(&messageidhash).unwrap_or_default();
-                let endorsers_length = details.endorsers.len();
-                let endorsement_count = u128::try_from(endorsers_length).unwrap() - 1;
-                // package them in the ReturnMessageDetails format
-                let return_details = ReturnMessageDetails {
-                    message_id: *messageidhash,
-                    from: details.from,
-                    message: details.message,
-                    timestamp: details.timestamp,
-                    endorser_count: endorsement_count,
-                    endorsers: details.endorsers,
-                };
                 // add the details to the message_list vector
-                message_list.push(return_details);
+                message_list.push(details);
             }
-            // return the vector of message details
-            message_list
+            // return the results
+            (followers_list, following_list, message_list)
         }
 
 
-        // 🟢 GET REPLIES
+        // 🟢 GET REPLIES TO A SINGLE MESSAGE
         // given a message ID hash, reutrns all messages that replied to that message
         #[ink(message)]
-        pub fn get_replies(&self, message_id: Hash) -> Vec<ReturnMessageDetails> {
+        pub fn get_replies(&self, message_id: Hash) -> Vec<MessageDetails> {
             // set up the return data structure
-            let mut message_list: Vec<ReturnMessageDetails> = Vec::new();
+            let mut message_list: Vec<MessageDetails> = Vec::new();
             // get the set of message ids that replied to the given message id
             let message_idvec = self.message_reply_map.get(&message_id).unwrap_or_default().messages;
             // iterate over those messages to get the details for each
             for messageidhash in message_idvec.iter() {
                 // get the details for that message
                 let details = self.message_map.get(&messageidhash).unwrap_or_default();
-                let endorsers_length = details.endorsers.len();
-                let endorsement_count = u128::try_from(endorsers_length).unwrap() - 1;
-                // package them in the ReturnMessageDetails format
-                let return_details = ReturnMessageDetails {
-                    message_id: *messageidhash,
-                    from: details.from,
-                    message: details.message,
-                    timestamp: details.timestamp,
-                    endorser_count: endorsement_count,
-                    endorsers: details.endorsers,
-                };
                 // add the details to the message_list vector
-                message_list.push(return_details);
+                message_list.push(details);
             }
 
             // return the results
@@ -945,49 +967,52 @@ mod geode_social {
         // 🟢 GET PUBLIC FEED
         // given an accountId, retuns the details of all public posts sent by all accounts they follow
         #[ink(message)]
-        pub fn get_public_feed(&self) -> Vec<ReturnMessageDetails> {
+        pub fn get_public_feed(&self) -> (u128, Vec<MessageDetails>) {
             // get the list of accounts they are following as a vector of AccountIds
             let caller = Self::env().caller();
             let accountvec = self.account_following_map.get(&caller).unwrap_or_default().following;
             // set up the return data structure
-            let mut message_list: Vec<ReturnMessageDetails> = Vec::new();
+            let mut message_list: Vec<MessageDetails> = Vec::new();
+
             // iterate over the vector of AccountIds...
             for account in accountvec.iter() {
-                // for each AccountId they follow, get the list of message_ids from that account
+                // for each AccountId they follow, get the list of message_ids sent from that account
                 let message_idvec = self.account_messages_map.get(account).unwrap_or_default().messages;
                 // iterate over those messages to get the details for each
                 for messageidhash in message_idvec.iter() {
                     // get the details for that message
                     let details = self.message_map.get(&messageidhash).unwrap_or_default();
-                    let endorsers_length = details.endorsers.len();
-                    let endorsement_count = u128::try_from(endorsers_length).unwrap() - 1;
-                    // package them in the ReturnMessageDetails format
-                    let return_details = ReturnMessageDetails {
-                        message_id: *messageidhash,
-                        from: details.from,
-                        message: details.message,
-                        timestamp: details.timestamp,
-                        endorser_count: endorsement_count,
-                        endorsers: details.endorsers,
-                    };
                     // add the details to the message_list vector
-                    message_list.push(return_details);
+                    message_list.push(details);
+                    // loop back and do the same for each account
                 }
-                // loop back and do the same for each account
+                // then get the list of messages elevated by that account and get the details for those
+                let elevated_idvec = self.account_elevated_map.get(account).unwrap_or_default().messages;
+                for messageidhash in elevated_idvec.iter() {
+                    // get the details for that message
+                    let details = self.message_map.get(&messageidhash).unwrap_or_default();
+                    // add the details to the message_list vector
+                    message_list.push(details);
+                    // loop back and do the same for each account
+                }
+                // At this point you should have all the messages sent and all the messages elevated by
+                // every account you follow. It will be up to the front end to limit the display
+                // and to order them by timestamp.
             }
+            let max_feed = self.account_settings_map.get(&caller).unwrap_or_default().max_feed;
             // return the results
-            message_list
+            (max_feed, message_list)
 
         }
 
 
-        // 🟢 GET PAID FEED
+        // 🟢 GET PAID FEED 
         // given an accountId, returns the details of every paid message, sent by anyone, that matches 
         // the interests of the given accountId AND still has paid endorsements available
         #[ink(message)]
-        pub fn get_paid_feed(&self) -> Vec<ReturnPaidMessageDetails> {
+        pub fn get_paid_feed(&self) -> (u128, Vec<PaidMessageDetails>) {
             // set up the return data structure
-            let mut message_list: Vec<ReturnPaidMessageDetails> = Vec::new();
+            let mut message_list: Vec<PaidMessageDetails> = Vec::new();
             // make a vector of all paid message id hashes that match this account's interests
             // start by defining the caller
             let caller = Self::env().caller();
@@ -1012,27 +1037,12 @@ mod geode_social {
                         // check to see if that message has any endorsements available
                         // start by getting the details for that message
                         let details = self.paid_message_map.get(&paidmessageid).unwrap_or_default();
-                        let endorsers_length = details.endorsers.len();
-                        let endorsement_count = u128::try_from(endorsers_length).unwrap() - 1;
+                        let endorsers_length = details.endorser_count;
                         let max_endorsements = details.paid_endorser_max;
                        
-                        if endorsement_count < max_endorsements {
-                            
-                            // package the message details and add it to the return vector
-                            let return_details = ReturnPaidMessageDetails {
-                                message_id: *paidmessageid,
-                                from: details.from,
-                                message: details.message,
-                                timestamp: details.timestamp,
-                                paid_endorser_max: details.paid_endorser_max,
-                                endorser_payment: details.endorser_payment,
-                                target_interests: details.target_interests,
-                                total_staked: details.total_staked,
-                                endorser_count: endorsement_count,
-                                endorsers: details.endorsers,
-                            };
+                        if endorsers_length < max_endorsements {
                             // add the details to the message_list vector
-                            message_list.push(return_details);
+                            message_list.push(details);
                         }
                         // else, if there are no paid endorsements left, do nothing
                         // repeat for the rest of the paid message ids under that target interest
@@ -1046,12 +1056,14 @@ mod geode_social {
             // At this point, you should have a complete list of messages and all their details
             // that match the caller's interests AND have paid endorsements available.
             // It is possible that the caller has already endorsed it, but that will be caught
-            // in the endorse function should they try to endorse it a second time. 
+            // in the elevate paid message function should they try to endorse it a second time. 
             // Meanwhile, the advertiser gets a bonus by putting this message in front of this
             // user repeatedly for free until the total endorsements have run out. 
 
-            // return the vector of message details for display
-            message_list
+            // return the results for display
+            let max_paid_feed = self.account_settings_map.get(&caller).unwrap_or_default().max_paid_feed;
+            // return the results
+            (max_paid_feed, message_list)
 
         }  
 
@@ -1059,6 +1071,58 @@ mod geode_social {
         // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
         // >>>>>>>>>>>>>>>>>>>>>>>>>> SECONDARY GET MESSAGES <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
         // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+
+        // 🟢 GET ACCOUNT MESSAGES
+        // given an accountId, returns the details of every unpaid message sent by that account
+        #[ink(message)]
+        pub fn get_account_messages(&self, user: AccountId) -> Vec<MessageDetails> {
+            let message_idvec = self.account_messages_map.get(&user).unwrap_or_default().messages;
+            let mut message_list: Vec<MessageDetails> = Vec::new();
+            for messageidhash in message_idvec.iter() {
+                // get the details for that message
+                let details = self.message_map.get(&messageidhash).unwrap_or_default();
+                // add the details to the message_list vector
+                message_list.push(details);
+            }
+            // return the vector of message details
+            message_list
+        }
+
+
+        // 🟢 GET ACCOUNT PAID MESSAGES
+        // given an accountId, returns the details of every paid message sent by that account
+        #[ink(message)]
+        pub fn get_account_paid_messages(&self, user: AccountId) -> Vec<PaidMessageDetails> {
+            let message_idvec = self.account_paid_messages_map.get(&user).unwrap_or_default().messages;
+            let mut message_list: Vec<PaidMessageDetails> = Vec::new();
+            for messageidhash in message_idvec.iter() {
+                // get the details for that message
+                let details = self.paid_message_map.get(&messageidhash).unwrap_or_default();
+                // add the details to the message_list vector
+                message_list.push(details);
+            }
+            // return the vector of message details
+            message_list
+        }
+
+
+        // 🟢 GET ACCOUNT ENDORSED MESSAGES
+        // given an accountId, returns the details of every unpaid message they endorsed/elevated
+        #[ink(message)]
+        pub fn get_account_endorsed_messages(&self, user: AccountId) -> Vec<MessageDetails> {
+            let message_idvec:Vec<Hash> = self.account_elevated_map.get(&user).unwrap_or_default().elevated;
+            let mut message_list: Vec<MessageDetails> = Vec::new();
+            for messageidhash in message_idvec.iter() {
+                // get the details for that message
+                let details = self.message_map.get(&messageidhash).unwrap_or_default();
+                // add the details to the message_list vector
+                message_list.push(details);
+            }
+            // return the vector of message details
+            message_list
+        }
+
 
         // get the message_ids for all the messages sent by a given AccountId
         #[ink(message)]

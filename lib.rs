@@ -4,10 +4,10 @@ This contract allows users to post public broadcast messages to the Geode Blockc
 In this contract, to endorse a message is to upvote it (a kind of like button that might 
 boost it's visibility in the front end). This contract also allows users to:
 - follow and unfollow specific accounts,
-- reply to posts, 
+- reply to regular message posts (NOT paid message posts), 
 - declare their interests, 
 - see paid messages that fit their interests, and 
-- be paid in GEODE to endorse or upvote a paid message 
+- be paid in GEODE to endorse or upvote a paid message.
 */ 
 
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -185,6 +185,7 @@ mod geode_social {
         message: Vec<u8>,
         link: Vec<u8>,
         endorser_count: u128,
+        reply_count: u128,
         timestamp: u64,
         endorsers: Vec<AccountId>
     }
@@ -198,6 +199,7 @@ mod geode_social {
                 message: <Vec<u8>>::default(),
                 link: <Vec<AccountId>>::default(),
                 endorser_count: 0,
+                reply_count: 0,
                 timestamp: u64::default(),
                 endorsers: <Vec<AccountId>>::default(),
             }
@@ -293,7 +295,9 @@ mod geode_social {
         // Reentrancy Guard error
         ReentrancyError(ReentrancyGuardError),
         // Returned if the username already belongs to someone else.
-        UsernameTaken
+        UsernameTaken,
+        // if you are replying to a message that does not exist
+        ReplyingToMessageDoesNotExist
     }
 
     impl From<ReentrancyGuardError> for Error {
@@ -374,7 +378,48 @@ mod geode_social {
             ink::env::hash_encoded::<Sha2x256, _>(&encodable, &mut new_message_id_u8);
             let new_message_id: Hash = Hash::from(new_message_id_u8);
 
-            // set up the message details
+            // UPDATE MESSAGE REPLY MAP IF REPLYING_TO IS FILLED IN
+            // if the replying_to input is blank, do nothing
+            if replying_to.is_empty() {
+                // do nothing here, proceed to the next step
+            }
+            else {
+                // if the replying_to input is not blank, check to make sure it is legit
+                // if the replying_to is legit, update the message reply map and increment the reply count
+                if self.message_map.contains(&replying_to) {
+                    // get the vector of replies for the original message
+                    let mut current_replies = self.message_reply_map.get(&replying_to).unwrap_or_default();
+                    // add this message to the replies vector for that original message
+                    current_replies.messages.push(new_message_id);
+                    // update the message_reply_map
+                    self.message_reply_map.insert(&replying_to, &current_replies);
+                    // get the details for the original message
+                    let original_message_details = self.message_map.get(&replying_to).unwrap_or_default();
+                    // increment the number of replies to the original message
+                    let new_reply_count = original_message_details.reply_count + 1;
+                    // set up the updated message details for that original message
+                    let orig_msg_details_update = MessageDetails {
+                        message_id: original_message_details.message_id,
+                        reply_to: original_message_details.replying_to,
+                        from: original_message_details.from,
+                        message: original_message_details.message,
+                        link: original_message_details.photo_or_other_link,
+                        endorser_count: original_message_details.endorser_count,
+                        reply_count: new_reply_count,
+                        timestamp: original_message_details.timestamp,
+                        endorsers: original_message_details.endorsers
+                    };
+                    // update the message_map with the updated details
+                    self.message_map.insert(&replying_to, &orig_msg_details_update);
+                }
+                else {
+                    // if the replying_to message hash does not exist, send an error
+                    return Err(Error::ReplyingToMessageDoesNotExist)
+                }
+             
+            }
+
+            // SET UP THE MESSAGE DETAILS FOR THE NEW MESSAGE
             let new_message_clone = new_message.clone();
             let new_details = MessageDetails {
                 message_id: new_message_id,
@@ -383,6 +428,7 @@ mod geode_social {
                 message: new_message_clone,
                 link: photo_or_other_link,
                 endorser_count: 0,
+                reply_count: 0,
                 timestamp: self.env().block_timestamp(),
                 endorsers: vec![Self::env().caller()]
             };
@@ -399,14 +445,6 @@ mod geode_social {
             current_messages.messages.push(new_message_id);
             // update the account_messages_map
             self.account_messages_map.insert(&caller, &current_messages);
-
-            // UPDATE MESSAGE REPLY MAP
-            // get the vector of replies for the original message
-            let mut current_replies = self.message_reply_map.get(&replying_to).unwrap_or_default();
-            // add this message to the replies vector for that original message
-            current_replies.messages.push(new_message_id);
-            // update the message_reply_map
-            self.message_reply_map.insert(&replying_to, &current_replies);
 
             // EMIT EVENT to register the post to the chain
             let new_message_clone2 = new_message.clone();
@@ -502,14 +540,45 @@ mod geode_social {
                 self.target_interests_vec.push(target_interests.clone());
             }
 
-            // UPDATE MESSAGE REPLY MAP
-            // get the vector of replies for the original message
-            let mut current_replies = self.message_reply_map.get(&replying_to).unwrap_or_default();
-            // add this message to the replies vector for that original message
-            current_replies.messages.push(new_message_id);
-            // update the message_reply_map
-            self.message_reply_map.insert(&replying_to, &current_replies);
-
+            // UPDATE THE MESSAGE REPLY MAP IF REPLYING_TO IS FILLED IN
+            // if the replying_to input is blank, do nothing
+            if replying_to.is_empty() {
+                // do nothing here, proceed to the next step
+            }
+            else {
+                // if the replying_to input is not blank, check to make sure it is legit
+                // if the replying_to is legit, update the message reply map and increment the reply count
+                if self.message_map.contains(&replying_to) {
+                    // get the vector of replies for the original message
+                    let mut current_replies = self.message_reply_map.get(&replying_to).unwrap_or_default();
+                    // add this message to the replies vector for that original message
+                    current_replies.messages.push(new_message_id);
+                    // update the message_reply_map
+                    self.message_reply_map.insert(&replying_to, &current_replies);
+                    // get the details for the original message
+                    let original_message_details = self.message_map.get(&replying_to).unwrap_or_default();
+                    // increment the number of replies to the original message
+                    let new_reply_count = original_message_details.reply_count + 1;
+                    // set up the updated message details for that original message
+                    let orig_msg_details_update = MessageDetails {
+                        message_id: original_message_details.message_id,
+                        reply_to: original_message_details.replying_to,
+                        from: original_message_details.from,
+                        message: original_message_details.message,
+                        link: original_message_details.photo_or_other_link,
+                        endorser_count: original_message_details.endorser_count,
+                        reply_count: new_reply_count,
+                        timestamp: original_message_details.timestamp,
+                        endorsers: original_message_details.endorsers
+                    };
+                    // update the message_map with the updated details
+                    self.message_map.insert(&replying_to, &orig_msg_details_update);
+                }
+                else {
+                    // if the replying_to message hash does not exist, send an error
+                    return Err(Error::ReplyingToMessageDoesNotExist)
+                }
+            }
 
             // EMIT AN EVENT (to register the post to the chain)
             let interests_clone = target_interests.clone();

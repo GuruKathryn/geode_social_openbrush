@@ -197,7 +197,7 @@ mod geode_social {
                 reply_to: Hash::default(),
                 from: ZERO_ADDRESS.into(),
                 message: <Vec<u8>>::default(),
-                link: <Vec<AccountId>>::default(),
+                link: <Vec<u8>>::default(),
                 endorser_count: 0,
                 reply_count: 0,
                 timestamp: u64::default(),
@@ -368,6 +368,10 @@ mod geode_social {
             new_message: Vec<u8>, photo_or_other_link: Vec<u8>, replying_to: Hash
         ) -> Result<(), Error> {
 
+            let new_message_clone = new_message.clone();
+            let new_message_clone2 = new_message.clone();
+            let link_clone = photo_or_other_link.clone();
+
             // set up the data that will go into the new_message_id
             let from = Self::env().caller();
             let new_timestamp = self.env().block_timestamp();
@@ -380,7 +384,9 @@ mod geode_social {
 
             // UPDATE MESSAGE REPLY MAP IF REPLYING_TO IS FILLED IN
             // if the replying_to input is blank, do nothing
-            if replying_to.is_empty() {
+            // convert the hash to a sting to use the is_empty method
+            let blank: Hash = Hash::default();
+            if replying_to == blank {
                 // do nothing here, proceed to the next step
             }
             else {
@@ -400,10 +406,10 @@ mod geode_social {
                     // set up the updated message details for that original message
                     let orig_msg_details_update = MessageDetails {
                         message_id: original_message_details.message_id,
-                        reply_to: original_message_details.replying_to,
+                        reply_to: original_message_details.reply_to,
                         from: original_message_details.from,
                         message: original_message_details.message,
-                        link: original_message_details.photo_or_other_link,
+                        link: original_message_details.link,
                         endorser_count: original_message_details.endorser_count,
                         reply_count: new_reply_count,
                         timestamp: original_message_details.timestamp,
@@ -420,7 +426,6 @@ mod geode_social {
             }
 
             // SET UP THE MESSAGE DETAILS FOR THE NEW MESSAGE
-            let new_message_clone = new_message.clone();
             let new_details = MessageDetails {
                 message_id: new_message_id,
                 reply_to: replying_to,
@@ -447,8 +452,6 @@ mod geode_social {
             self.account_messages_map.insert(&caller, &current_messages);
 
             // EMIT EVENT to register the post to the chain
-            let new_message_clone2 = new_message.clone();
-            let link_clone = photo_or_other_link.clone();
             Self::env().emit_event(MessageBroadcast {
                 from: Self::env().caller(),
                 message: new_message_clone2,
@@ -474,6 +477,12 @@ mod geode_social {
             replying_to: Hash
         ) -> Result<(), Error> {
 
+            let new_message_clone = new_message.clone();
+            let new_message_clone2 = new_message.clone();
+            let interests_clone = target_interests.clone();
+            let interests_clone2 = target_interests.clone();
+            let link_clone = photo_or_other_link.clone();
+            
             // CREATE THE MESSAGE ID HASH
             // set up the data that will go into the new_message_id
             let from = Self::env().caller();
@@ -494,7 +503,6 @@ mod geode_social {
 
             // UPDATE THE MESSAGES MAP WITH THE DETAILS
             // set up the paid message details
-            let new_message_clone = new_message.clone();
             let new_details = PaidMessageDetails {
                     message_id: new_message_id,
                     reply_to: replying_to,
@@ -523,26 +531,28 @@ mod geode_social {
 
             // UPDATE THE TARGET INTERESTS MAP
             // get the current set of messages that match this target
-            let mut matching_messages = self.target_interests_map.get(&target_interests).unwrap_or_default();
+            let mut matching_messages = self.target_interests_map.get(&interests_clone).unwrap_or_default();
             // add the new message to the list
             matching_messages.messages.push(new_message_id);
             // update the mapping
-            self.target_interests_map.insert(&target_interests, &matching_messages);
+            self.target_interests_map.insert(&interests_clone, &matching_messages);
 
             // UPDATE THE TARGET INTERESTS VECTOR
             // check to see if this target_interests already exists in the vector
-            if self.target_interests_vec.contains(&target_interests) {
+            if self.target_interests_vec.contains(&interests_clone) {
                 // if it already, exists, do nothing... but if you have to do something
                 // let x = 0;
             }
             // else, if it does not already exist, add it to the target_interests_vec
             else {
-                self.target_interests_vec.push(target_interests.clone());
+                self.target_interests_vec.push(interests_clone);
             }
 
             // UPDATE THE MESSAGE REPLY MAP IF REPLYING_TO IS FILLED IN
             // if the replying_to input is blank, do nothing
-            if replying_to.is_empty() {
+            // convert the hash to a string to use the is_empty method
+            let blank: Hash = Hash::default();
+            if replying_to == blank {
                 // do nothing here, proceed to the next step
             }
             else {
@@ -562,10 +572,10 @@ mod geode_social {
                     // set up the updated message details for that original message
                     let orig_msg_details_update = MessageDetails {
                         message_id: original_message_details.message_id,
-                        reply_to: original_message_details.replying_to,
+                        reply_to: original_message_details.reply_to,
                         from: original_message_details.from,
                         message: original_message_details.message,
-                        link: original_message_details.photo_or_other_link,
+                        link: original_message_details.link,
                         endorser_count: original_message_details.endorser_count,
                         reply_count: new_reply_count,
                         timestamp: original_message_details.timestamp,
@@ -581,10 +591,6 @@ mod geode_social {
             }
 
             // EMIT AN EVENT (to register the post to the chain)
-            let interests_clone = target_interests.clone();
-            let link_clone = photo_or_other_link.clone();
-            let new_message_clone2 = new_message.clone();
-
             Self::env().emit_event(PaidMessageBroadcast {
                 from: Self::env().caller(),
                 message: new_message_clone2,
@@ -594,7 +600,7 @@ mod geode_social {
                 timestamp: self.env().block_timestamp(),
                 paid_endorser_max: maximum_number_of_paid_endorsers,
                 endorser_payment: payment_per_endorser,
-                target_interests: interests_clone,
+                target_interests: interests_clone2,
                 total_staked: staked
             });
 
@@ -637,10 +643,12 @@ mod geode_social {
                     // Update the details in storage for this message
                     let updated_details: MessageDetails = MessageDetails {
                         message_id: current_details.message_id,
+                        reply_to: current_details.reply_to,
                         from: current_details.from,
                         message: current_details.message,
                         link: current_details.link,
                         endorser_count: new_endorser_count,
+                        reply_count: current_details.reply_count,
                         timestamp: current_details.timestamp,
                         endorsers: current_details.endorsers
                     };
@@ -718,6 +726,7 @@ mod geode_social {
                             // Update the details in storage for this paid message
                             let updated_details: PaidMessageDetails = PaidMessageDetails {
                                 message_id: current_details.message_id,
+                                reply_to: current_details.reply_to,
                                 from: current_details.from,
                                 message: current_details.message,
                                 link: current_details.link,
@@ -863,6 +872,10 @@ mod geode_social {
             max_messages_in_my_paid_feed: u128,
         ) -> Result<(), Error> {
 
+            let username_clone1 = my_username.clone();
+            let username_clone2 = my_username.clone();
+            let interests_clone = my_interests.clone();
+
             // get the current settings for this caller and prepare the update
             let caller = Self::env().caller();
             let current_settings = self.account_settings_map.get(&caller).unwrap_or_default();
@@ -883,15 +896,13 @@ mod geode_social {
             else {
                 // check that the set of interest keywords are not too long
                 // maximum length is 600 which would give us 300 characters
-                let interests_length = my_interests.len();
+                let interests_length = interests_clone.len();
                 if interests_length > 600 {
                     // intrests are too long, send an error
                     return Err(Error::InterestsTooLong)
                 }
                 else {
                     // check that the username is not taken by someone else...
-                    let username_clone1 = my_username.clone();
-                    let username_clone2 = my_username.clone();
                     // if the username is in use already...
                     if self.username_map.contains(username_clone1) {
                         // get the account that owns that username
@@ -945,7 +956,7 @@ mod geode_social {
                     // loop back and do the same for each account
                 }
                 // then get the list of messages elevated by that account and get the details for those
-                let elevated_idvec = self.account_elevated_map.get(account).unwrap_or_default().messages;
+                let elevated_idvec = self.account_elevated_map.get(account).unwrap_or_default().elevated;
                 for messageidhash in elevated_idvec.iter() {
                     // get the details for that message
                     let details = self.message_map.get(&messageidhash).unwrap_or_default();
@@ -1217,7 +1228,7 @@ mod geode_social {
         // Get the details on a paid message post, given the message_id hash.  
         #[ink(message)]
         pub fn get_details_for_paid_message(&self, message_id: Hash
-        ) -> Details {
+        ) -> PaidMessageDetails {
 
             // get the details for this message
             let details = self.paid_message_map.get(&message_id).unwrap_or_default();
@@ -1228,7 +1239,7 @@ mod geode_social {
         // Get the details on a public message post, given the message_id hash.  
         #[ink(message)]
         pub fn get_details_for_message(&self, message_id: Hash
-        ) -> Details {
+        ) -> MessageDetails {
 
             // get the details for this message
             let details = self.message_map.get(&message_id).unwrap_or_default();

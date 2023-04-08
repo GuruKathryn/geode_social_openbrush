@@ -101,6 +101,24 @@ mod geode_social {
             scale_info::TypeInfo, Debug, PartialEq, Eq
         )
     )]
+    pub struct Blocked {
+        blocked: Vec<AccountId>,
+    }
+
+    impl Default for Blocked {
+        fn default() -> Blocked {
+            Blocked {
+              blocked: <Vec<AccountId>>::default(),
+            }
+        }
+    }
+
+    #[derive(Clone, scale::Decode, scale::Encode)]
+    #[cfg_attr(feature = "std",
+        derive(ink::storage::traits::StorageLayout, 
+            scale_info::TypeInfo, Debug, PartialEq, Eq
+        )
+    )]
     pub struct Messages {
         messages: Vec<Hash>,
     }
@@ -274,6 +292,10 @@ mod geode_social {
         // Unfollowing an account that you don't follow anyway
         NotFollowing,
         NotInFollowerList,
+        // Blocking an account that you already blocked
+        DuplicateBlock,
+        // Unblocking an account that you never blocked
+        NotBlocked,
         // Elevating a message that does not exist
         NonexistentMessage,
         // Elevating a paid message that does not exist
@@ -317,6 +339,8 @@ mod geode_social {
         account_settings_map: Mapping<AccountId, Settings>,
         account_following_map: Mapping<AccountId, Following>,
         account_followers_map: Mapping<AccountId, Followers>,
+        account_blocked_map: Mapping<AccountId, Blocked>,
+        all_blocked: Vec<AccountId>,
         account_messages_map: Mapping<AccountId, Messages>,
         account_paid_messages_map: Mapping<AccountId, Messages>,
         account_elevated_map: Mapping<AccountId, Elevated>,
@@ -344,6 +368,8 @@ mod geode_social {
                 account_settings_map: Mapping::default(),
                 account_following_map: Mapping::default(),
                 account_followers_map: Mapping::default(),
+                account_blocked_map: Mapping::default(),
+                all_blocked: <Vec<AccountId>>::default(),
                 account_messages_map: Mapping::default(),
                 account_paid_messages_map: Mapping::default(),
                 account_elevated_map: Mapping::default(),
@@ -861,6 +887,55 @@ mod geode_social {
         }
 
 
+        // 🟢 BLOCK AN ACCOUNT 
+        // allows a user to follow another accountId's messages
+        #[ink(message)]
+        pub fn block_account (&mut self, block: AccountId
+        ) -> Result<(), Error> {
+            // Is this account already being blocked? If TRUE, send ERROR
+            let caller = Self::env().caller();
+            let mut current_blocked = self.account_blocked_map.get(&caller).unwrap_or_default();
+            if current_blocked.blocked.contains(&block) {
+                return Err(Error::DuplicateBlock);
+            }
+            // Otherwise, update the account_blocked_map for this caller
+            else {
+                // add the new block to the the vector of accounts caller is blocking
+                current_blocked.blocked.push(block);
+                // Update (overwrite) the account_blocked_map entry in the storage
+                self.account_blocked_map.insert(&caller, &current_blocked);
+                // add this account to the vector of all blocked accounts
+                self.all_blocked.push(block);
+            }
+            
+            Ok(())
+        }
+
+
+        // 🟢 UNBLOCK AN ACCOUNT 
+        // allows a user to unblock an accountId they had previously blocked
+        #[ink(message)]
+        pub fn unblock_account (&mut self, unblock: AccountId
+        ) -> Result<(), Error> {
+            // Is this account currently being blocked? If TRUE, proceed...
+            let caller = Self::env().caller();
+            let mut current_blocked = self.account_blocked_map.get(&caller).unwrap_or_default();
+            if current_blocked.blocked.contains(&unblocked) {
+                // remove the unblock from the the vector of accounts they are blocking
+                // by keeping everyone other than that account... 
+                current_blocked.blocked.retain(|value| *value != unblock);
+                // Update (overwrite) the account_blocked_map entry in the storage
+                self.account_blocked_map.insert(&caller, &current_blocked);
+            }
+            // If the account is not currently being followed, ERROR: Already Not Following
+            else {
+                return Err(Error::NotBlocked);
+            }
+
+            Ok(())
+        }
+
+
         // 🟢 UPDATE SETTINGS 
         // lets a user to update their list of keyword interests and other settings 
         // overwrites the mapping in contract storage
@@ -936,7 +1011,7 @@ mod geode_social {
         // 🟢 GET PUBLIC FEED
         // given an accountId, retuns the details of all public posts sent by all accounts they follow
         #[ink(message)]
-        pub fn get_public_feed(&self) -> (u128, Vec<MessageDetails>) {
+        pub fn get_public_feed(&self) -> (u128, Blocked, Vec<MessageDetails>) {
             // get the list of accounts they are following as a vector of AccountIds
             let caller = Self::env().caller();
             let accountvec = self.account_following_map.get(&caller).unwrap_or_default().following;
@@ -969,8 +1044,9 @@ mod geode_social {
                 // and to order them by timestamp.
             }
             let max_feed = self.account_settings_map.get(&caller).unwrap_or_default().max_feed;
+            let blocked_accounts = self.account_blocked_map.get(&caller).unwrap_or_default();
             // return the results
-            (max_feed, message_list)
+            (max_feed, blocked_accounts, message_list)
 
         }
 
@@ -979,7 +1055,7 @@ mod geode_social {
         // given an accountId, returns the details of every paid message, sent by anyone, that matches 
         // the interests of the given accountId AND still has paid endorsements available
         #[ink(message)]
-        pub fn get_paid_feed(&self) -> (u128, Vec<PaidMessageDetails>) {
+        pub fn get_paid_feed(&self) -> (u128, Blocked, Vec<PaidMessageDetails>) {
             // set up the return data structure
             let mut message_list: Vec<PaidMessageDetails> = Vec::new();
             // make a vector of all paid message id hashes that match this account's interests
@@ -1031,8 +1107,9 @@ mod geode_social {
 
             // return the results for display
             let max_paid_feed = self.account_settings_map.get(&caller).unwrap_or_default().max_paid_feed;
+            let blocked_accounts = self.account_blocked_map.get(&caller).unwrap_or_default();
             // return the results
-            (max_paid_feed, message_list)
+            (max_paid_feed, blocked_accounts, message_list)
 
         }  
 
@@ -1093,6 +1170,36 @@ mod geode_social {
         // >>>>>>>>>>>>>>>>>>>>>>>>>> SECONDARY GET MESSAGES <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
         // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
+        // GET THE FULL LIST OF ALL ACCOUNTS EVER BLOCKED BY ANYONE
+        // An account might show up several times if they were blocked by several people or
+        // if they were blocked repeatedly by the same person 
+        #[ink(message)]
+        pub fn get_all_blocked(&self) -> 
+        Vec<AccountId> {
+            // set up the return data structure
+            self.all_blocked
+        }
+
+        // SEE HOW MANY TIMES AN ACCOUNT WAS BLOCKED
+        // the user can input an accountID and see how many times it was ever blocked
+        // even if it is not currently blocked by anyone
+        #[ink(message)]
+        pub fn get_account_block_count(&self, user: AccountId) -> 
+        u128 {
+            // set up the return data structure
+            let all_blocked = self.all_blocked;
+            let mut block_count:u128 = 0;
+            // iterate over the all_blocked vector to detect the user
+            for account in all_blocked.iter() {
+                // if the account is the one you are looking for, 
+                if account == user {
+                    // add one to the count
+                    block_count +=1;
+                }
+            }
+            // return the block count
+            block_count
+        }
 
         // GET ACCOUNT SETTINGS
         // get the current settings for a given AccountId

@@ -920,7 +920,7 @@ mod geode_social {
             // Is this account currently being blocked? If TRUE, proceed...
             let caller = Self::env().caller();
             let mut current_blocked = self.account_blocked_map.get(&caller).unwrap_or_default();
-            if current_blocked.blocked.contains(&unblocked) {
+            if current_blocked.blocked.contains(&unblock) {
                 // remove the unblock from the the vector of accounts they are blocking
                 // by keeping everyone other than that account... 
                 current_blocked.blocked.retain(|value| *value != unblock);
@@ -1174,25 +1174,23 @@ mod geode_social {
         // An account might show up several times if they were blocked by several people or
         // if they were blocked repeatedly by the same person 
         #[ink(message)]
-        pub fn get_all_blocked(&self) -> 
-        Vec<AccountId> {
-            // set up the return data structure
-            self.all_blocked
+        pub fn get_all_blocked(&self) -> Vec<AccountId> {
+            let all_blocked = self.all_blocked.clone();
+            all_blocked
         }
 
         // SEE HOW MANY TIMES AN ACCOUNT WAS BLOCKED
         // the user can input an accountID and see how many times it was ever blocked
         // even if it is not currently blocked by anyone
         #[ink(message)]
-        pub fn get_account_block_count(&self, user: AccountId) -> 
-        u128 {
+        pub fn get_account_block_count(&self, user: AccountId) -> u128 {
             // set up the return data structure
-            let all_blocked = self.all_blocked;
             let mut block_count:u128 = 0;
             // iterate over the all_blocked vector to detect the user
-            for account in all_blocked.iter() {
-                // if the account is the one you are looking for, 
-                if account == user {
+            for account in self.all_blocked.iter() {
+                // if the account is the one you are looking for,
+                let test_account = *account; 
+                if test_account == user {
                     // add one to the count
                     block_count +=1;
                 }

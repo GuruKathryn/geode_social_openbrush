@@ -346,6 +346,7 @@ mod geode_social {
         account_elevated_map: Mapping<AccountId, Elevated>,
         account_paid_elevated_map: Mapping<AccountId, Elevated>,
         message_map: Mapping<Hash, MessageDetails>,
+        message_vec: Vec<Hash>,
         paid_message_map: Mapping<Hash, PaidMessageDetails>,
         target_interests_map: Mapping<Vec<u8>, Messages>,
         target_interests_vec: Vec<Vec<u8>>,
@@ -375,6 +376,7 @@ mod geode_social {
                 account_elevated_map: Mapping::default(),
                 account_paid_elevated_map: Mapping::default(),
                 message_map: Mapping::default(),
+                message_vec: <Vec<Hash>>::default(),
                 paid_message_map: Mapping::default(),
                 target_interests_map: Mapping::default(),
                 target_interests_vec: <Vec<Vec<u8>>>::default(),
@@ -464,9 +466,10 @@ mod geode_social {
                 endorsers: vec![Self::env().caller()]
             };
 
-            // UPDATE MESSAGE MAP
+            // UPDATE MESSAGE MAP AND VECTOR
             // add the message id and its details to the message_map
             self.message_map.insert(&new_message_id, &new_details);
+            self.message_vec.push(new_message_id);
 
             // UPDATE ACCOUNT MESSAGES MAP
             // get the messages vector for this account
@@ -1164,6 +1167,33 @@ mod geode_social {
             message_list
 
         }
+
+
+        // SEARCH MESSAGES BY KEYWORD
+        // Returns all the messages that include a given a keyword or phrase
+        #[ink(message)]
+        pub fn get_messages_by_keyword(&self, keywords: Vec<u8>) -> Vec<MessageDetails> {
+            // set up your results vector
+            let mut matching_messages: Vec<MessageDetails> = Vec::new();
+            // iterate over the messages_vec
+            for messagehash in self.message_vec.iter() {
+                // get the details
+                let details = self.message_map.get(&messagehash).unwrap_or_default();
+                // check to see if the keywords are in the message
+                let message_string = String::from_utf8(details.message.clone()).unwrap_or_default();
+                let targetvecu8 = keywords.clone();
+                let target_string = String::from_utf8(targetvecu8).unwrap_or_default();
+                // if the target_string is in the message_string
+                if message_string.contains(&target_string) {
+                    // add it to the results vector
+                    matching_messages.push(details);
+                }
+                //continue iterating
+            }
+            // return the results
+            matching_messages
+        }
+
 
 
         // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>

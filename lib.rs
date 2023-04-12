@@ -159,6 +159,7 @@ mod geode_social {
         message_id: Hash,
         reply_to: Hash,
         from: AccountId,
+        username: Vec<u8>,
         message: Vec<u8>,
         link: Vec<u8>,
         endorser_count: u128,
@@ -176,6 +177,7 @@ mod geode_social {
                 message_id: Hash::default(),
                 reply_to: Hash::default(),
                 from: ZERO_ADDRESS.into(),
+                username: <Vec<u8>>::default(),
                 message: <Vec<u8>>::default(),
                 link: <Vec<u8>>::default(),
                 endorser_count: 0,
@@ -200,6 +202,7 @@ mod geode_social {
         message_id: Hash,
         reply_to: Hash,
         from: AccountId,
+        username: Vec<u8>,
         message: Vec<u8>,
         link: Vec<u8>,
         endorser_count: u128,
@@ -214,6 +217,7 @@ mod geode_social {
                 message_id: Hash::default(),
                 reply_to: Hash::default(),
                 from: ZERO_ADDRESS.into(),
+                username: <Vec<u8>>::default(),
                 message: <Vec<u8>>::default(),
                 link: <Vec<u8>>::default(),
                 endorser_count: 0,
@@ -454,10 +458,13 @@ mod geode_social {
             }
 
             // SET UP THE MESSAGE DETAILS FOR THE NEW MESSAGE
+            let caller = Self::env().caller();
+            let fromusername = self.account_settings_map.get(caller).username;
             let new_details = MessageDetails {
                 message_id: new_message_id,
                 reply_to: replying_to,
                 from: Self::env().caller(),
+                username: fromusername,
                 message: new_message_clone,
                 link: photo_or_other_link,
                 endorser_count: 0,
@@ -531,11 +538,14 @@ mod geode_social {
             let payment_per_endorser: Balance = staked / maximum_number_of_paid_endorsers;
 
             // UPDATE THE MESSAGES MAP WITH THE DETAILS
+            let caller = Self::env().caller();
+            let fromusername = self.account_settings_map.get(caller).username;
             // set up the paid message details
             let new_details = PaidMessageDetails {
                     message_id: new_message_id,
                     reply_to: replying_to,
                     from: Self::env().caller(),
+                    username: fromusername,
                     message: new_message_clone,
                     link: photo_or_other_link,
                     endorser_count: 0,
@@ -674,6 +684,7 @@ mod geode_social {
                         message_id: current_details.message_id,
                         reply_to: current_details.reply_to,
                         from: current_details.from,
+                        username: current_details.username,
                         message: current_details.message,
                         link: current_details.link,
                         endorser_count: new_endorser_count,
@@ -757,6 +768,7 @@ mod geode_social {
                                 message_id: current_details.message_id,
                                 reply_to: current_details.reply_to,
                                 from: current_details.from,
+                                username: current_details.username,
                                 message: current_details.message,
                                 link: current_details.link,
                                 endorser_count: new_endorser_count,
@@ -952,6 +964,7 @@ mod geode_social {
 
             let username_clone1 = my_username.clone();
             let username_clone2 = my_username.clone();
+            let username_clone3 = my_username.clone();
             let interests_clone = my_interests.clone();
 
             // get the current settings for this caller and prepare the update
@@ -997,6 +1010,8 @@ mod geode_social {
                     else {
                         // if the username is not already in use, update the storage map
                         self.account_settings_map.insert(&caller, &settings_update);
+                        // then update the username map
+                        self.username_map.insert(&username_clone3, &caller);
                     }
                 }
                 

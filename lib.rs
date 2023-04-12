@@ -440,6 +440,7 @@ mod geode_social {
                         message_id: original_message_details.message_id,
                         reply_to: original_message_details.reply_to,
                         from: original_message_details.from,
+                        username: original_message_details.username,
                         message: original_message_details.message,
                         link: original_message_details.link,
                         endorser_count: original_message_details.endorser_count,
@@ -459,7 +460,7 @@ mod geode_social {
 
             // SET UP THE MESSAGE DETAILS FOR THE NEW MESSAGE
             let caller = Self::env().caller();
-            let fromusername = self.account_settings_map.get(caller).username;
+            let fromusername = self.account_settings_map.get(caller).unwrap_or_default().username;
             let new_details = MessageDetails {
                 message_id: new_message_id,
                 reply_to: replying_to,
@@ -539,7 +540,7 @@ mod geode_social {
 
             // UPDATE THE MESSAGES MAP WITH THE DETAILS
             let caller = Self::env().caller();
-            let fromusername = self.account_settings_map.get(caller).username;
+            let fromusername = self.account_settings_map.get(caller).unwrap_or_default().username;
             // set up the paid message details
             let new_details = PaidMessageDetails {
                     message_id: new_message_id,
@@ -613,6 +614,7 @@ mod geode_social {
                         message_id: original_message_details.message_id,
                         reply_to: original_message_details.reply_to,
                         from: original_message_details.from,
+                        username: original_message_details.username,
                         message: original_message_details.message,
                         link: original_message_details.link,
                         endorser_count: original_message_details.endorser_count,

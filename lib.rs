@@ -119,6 +119,17 @@ mod geode_social {
             scale_info::TypeInfo, Debug, PartialEq, Eq
         )
     )]
+    pub struct MaxFeed {
+        maxfeed: u128,
+    }
+    
+
+    #[derive(Clone, scale::Decode, scale::Encode)]
+    #[cfg_attr(feature = "std",
+        derive(ink::storage::traits::StorageLayout, 
+            scale_info::TypeInfo, Debug, PartialEq, Eq
+        )
+    )]
     pub struct Messages {
         messages: Vec<Hash>,
     }
@@ -1064,10 +1075,6 @@ mod geode_social {
                 // and to order them by timestamp.
             }
 
-            
-            pub struct MaxFeed {
-            maxfeed: u128,
-            }
             let max_feed = MaxFeed {
                 maxfeed: self.account_settings_map.get(&caller).unwrap_or_default().max_feed
             };
@@ -1133,9 +1140,6 @@ mod geode_social {
             // user repeatedly for free until the total endorsements have run out. 
 
             // return the results for display
-            pub struct MaxFeed {
-            maxfeed: u128,
-            }
             let max_paid_feed = MaxFeed {
                 maxfeed: self.account_settings_map.get(&caller).unwrap_or_default().max_paid_feed
             };

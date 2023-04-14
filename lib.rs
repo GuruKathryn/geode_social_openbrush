@@ -122,7 +122,6 @@ mod geode_social {
     pub struct MaxFeed {
         maxfeed: u128,
     }
-    
 
     #[derive(Clone, scale::Decode, scale::Encode)]
     #[cfg_attr(feature = "std",

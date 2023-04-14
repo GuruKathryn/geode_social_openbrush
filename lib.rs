@@ -1031,7 +1031,7 @@ mod geode_social {
         // 🟢 GET PUBLIC FEED
         // given an accountId, retuns the details of all public posts sent by all accounts they follow
         #[ink(message)]
-        pub fn get_public_feed(&self) -> (u128, Blocked, Vec<MessageDetails>) {
+        pub fn get_public_feed(&self) -> (MaxFeed, Blocked, Vec<MessageDetails>) {
             // get the list of accounts they are following as a vector of AccountIds
             let caller = Self::env().caller();
             let accountvec = self.account_following_map.get(&caller).unwrap_or_default().following;
@@ -1063,7 +1063,14 @@ mod geode_social {
                 // every account you follow. It will be up to the front end to limit the display
                 // and to order them by timestamp.
             }
-            let max_feed = self.account_settings_map.get(&caller).unwrap_or_default().max_feed;
+
+            
+            pub struct MaxFeed {
+            maxfeed: u128,
+            }
+            let max_feed = MaxFeed {
+                maxfeed: self.account_settings_map.get(&caller).unwrap_or_default().max_feed
+            };
             let blocked_accounts = self.account_blocked_map.get(&caller).unwrap_or_default();
             // return the results
             (max_feed, blocked_accounts, message_list)
@@ -1075,7 +1082,7 @@ mod geode_social {
         // given an accountId, returns the details of every paid message, sent by anyone, that matches 
         // the interests of the given accountId AND still has paid endorsements available
         #[ink(message)]
-        pub fn get_paid_feed(&self) -> (u128, Blocked, Vec<PaidMessageDetails>) {
+        pub fn get_paid_feed(&self) -> (MaxFeed, Blocked, Vec<PaidMessageDetails>) {
             // set up the return data structure
             let mut message_list: Vec<PaidMessageDetails> = Vec::new();
             // make a vector of all paid message id hashes that match this account's interests
@@ -1126,7 +1133,12 @@ mod geode_social {
             // user repeatedly for free until the total endorsements have run out. 
 
             // return the results for display
-            let max_paid_feed = self.account_settings_map.get(&caller).unwrap_or_default().max_paid_feed;
+            pub struct MaxFeed {
+            maxfeed: u128,
+            }
+            let max_paid_feed = MaxFeed {
+                maxfeed: self.account_settings_map.get(&caller).unwrap_or_default().max_paid_feed
+            };
             let blocked_accounts = self.account_blocked_map.get(&caller).unwrap_or_default();
             // return the results
             (max_paid_feed, blocked_accounts, message_list)

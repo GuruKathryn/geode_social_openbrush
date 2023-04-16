@@ -119,16 +119,6 @@ mod geode_social {
             scale_info::TypeInfo, Debug, PartialEq, Eq
         )
     )]
-    pub struct MaxFeed {
-        maxfeed: u128,
-    }
-
-    #[derive(Clone, scale::Decode, scale::Encode)]
-    #[cfg_attr(feature = "std",
-        derive(ink::storage::traits::StorageLayout, 
-            scale_info::TypeInfo, Debug, PartialEq, Eq
-        )
-    )]
     pub struct Messages {
         messages: Vec<Hash>,
     }
@@ -168,7 +158,7 @@ mod geode_social {
     pub struct PaidMessageDetails {
         message_id: Hash,
         reply_to: Hash,
-        from: AccountId,
+        from_acct: AccountId,
         username: Vec<u8>,
         message: Vec<u8>,
         link: Vec<u8>,
@@ -186,7 +176,7 @@ mod geode_social {
             PaidMessageDetails {
                 message_id: Hash::default(),
                 reply_to: Hash::default(),
-                from: ZERO_ADDRESS.into(),
+                from_acct: ZERO_ADDRESS.into(),
                 username: <Vec<u8>>::default(),
                 message: <Vec<u8>>::default(),
                 link: <Vec<u8>>::default(),
@@ -211,7 +201,7 @@ mod geode_social {
     pub struct MessageDetails {
         message_id: Hash,
         reply_to: Hash,
-        from: AccountId,
+        from_acct: AccountId,
         username: Vec<u8>,
         message: Vec<u8>,
         link: Vec<u8>,
@@ -226,7 +216,7 @@ mod geode_social {
             MessageDetails {
                 message_id: Hash::default(),
                 reply_to: Hash::default(),
-                from: ZERO_ADDRESS.into(),
+                from_acct: ZERO_ADDRESS.into(),
                 username: <Vec<u8>>::default(),
                 message: <Vec<u8>>::default(),
                 link: <Vec<u8>>::default(),
@@ -234,6 +224,72 @@ mod geode_social {
                 reply_count: 0,
                 timestamp: u64::default(),
                 endorsers: <Vec<AccountId>>::default(),
+            }
+        }
+    }
+
+    #[derive(Clone, scale::Decode, scale::Encode)]
+    #[cfg_attr(feature = "std",
+        derive(ink::storage::traits::StorageLayout, 
+            scale_info::TypeInfo, Debug, PartialEq, Eq
+        )
+    )]
+    pub struct MyFeed {
+        maxfeed: u128,
+        blocked: Vec<AccountId>,
+        myfeed: Vec<MessageDetails>,
+    }
+
+    impl Default for MyFeed {
+        fn default() -> MyFeed {
+            MyFeed {
+              maxfeed: 1000,
+              blocked: <Vec<AccountId>>::default(),
+              myfeed: <Vec<MessageDetails>>::default(),
+            }
+        }
+    }
+
+    #[derive(Clone, scale::Decode, scale::Encode)]
+    #[cfg_attr(feature = "std",
+        derive(ink::storage::traits::StorageLayout, 
+            scale_info::TypeInfo, Debug, PartialEq, Eq
+        )
+    )]
+    pub struct MyPaidFeed {
+        maxfeed: u128,
+        blocked: Vec<AccountId>,
+        mypaidfeed: Vec<PaidMessageDetails>,
+    }
+
+    impl Default for MyPaidFeed {
+        fn default() -> MyPaidFeed {
+            MyPaidFeed {
+              maxfeed: 1000,
+              blocked: <Vec<AccountId>>::default(),
+              mypaidfeed: <Vec<PaidMessageDetails>>::default(),
+            }
+        }
+    }
+
+    #[derive(Clone, scale::Decode, scale::Encode)]
+    #[cfg_attr(feature = "std",
+        derive(ink::storage::traits::StorageLayout, 
+            scale_info::TypeInfo, Debug, PartialEq, Eq
+        )
+    )]
+    pub struct SocialProfile {
+        followers: Followers,
+        following: Following,
+        message_list: Vec<MessageDetails>,
+    }
+
+    impl Default for SocialProfile {
+        fn default() -> SocialProfile {
+            SocialProfile {
+              followers: Followers::default(),
+              following: Following::default(),
+              message_list: <Vec<MessageDetails>>::default(),
             }
         }
     }
@@ -449,7 +505,7 @@ mod geode_social {
                     let orig_msg_details_update = MessageDetails {
                         message_id: original_message_details.message_id,
                         reply_to: original_message_details.reply_to,
-                        from: original_message_details.from,
+                        from_acct: original_message_details.from_acct,
                         username: original_message_details.username,
                         message: original_message_details.message,
                         link: original_message_details.link,
@@ -474,7 +530,7 @@ mod geode_social {
             let new_details = MessageDetails {
                 message_id: new_message_id,
                 reply_to: replying_to,
-                from: Self::env().caller(),
+                from_acct: Self::env().caller(),
                 username: fromusername,
                 message: new_message_clone,
                 link: photo_or_other_link,
@@ -555,7 +611,7 @@ mod geode_social {
             let new_details = PaidMessageDetails {
                     message_id: new_message_id,
                     reply_to: replying_to,
-                    from: Self::env().caller(),
+                    from_acct: Self::env().caller(),
                     username: fromusername,
                     message: new_message_clone,
                     link: photo_or_other_link,
@@ -623,7 +679,7 @@ mod geode_social {
                     let orig_msg_details_update = MessageDetails {
                         message_id: original_message_details.message_id,
                         reply_to: original_message_details.reply_to,
-                        from: original_message_details.from,
+                        from_acct: original_message_details.from_acct,
                         username: original_message_details.username,
                         message: original_message_details.message,
                         link: original_message_details.link,
@@ -695,7 +751,7 @@ mod geode_social {
                     let updated_details: MessageDetails = MessageDetails {
                         message_id: current_details.message_id,
                         reply_to: current_details.reply_to,
-                        from: current_details.from,
+                        from_acct: current_details.from_acct,
                         username: current_details.username,
                         message: current_details.message,
                         link: current_details.link,
@@ -779,7 +835,7 @@ mod geode_social {
                             let updated_details: PaidMessageDetails = PaidMessageDetails {
                                 message_id: current_details.message_id,
                                 reply_to: current_details.reply_to,
-                                from: current_details.from,
+                                from_acct: current_details.from_acct,
                                 username: current_details.username,
                                 message: current_details.message,
                                 link: current_details.link,
@@ -1041,7 +1097,7 @@ mod geode_social {
         // 🟢 GET PUBLIC FEED
         // given an accountId, retuns the details of all public posts sent by all accounts they follow
         #[ink(message)]
-        pub fn get_public_feed(&self) -> (MaxFeed, Blocked, Vec<MessageDetails>) {
+        pub fn get_public_feed(&self) -> MyFeed {
             // get the list of accounts they are following as a vector of AccountIds
             let caller = Self::env().caller();
             let accountvec = self.account_following_map.get(&caller).unwrap_or_default().following;
@@ -1074,12 +1130,14 @@ mod geode_social {
                 // and to order them by timestamp.
             }
 
-            let max_feed = MaxFeed {
-                maxfeed: self.account_settings_map.get(&caller).unwrap_or_default().max_feed
+            // package the results
+            let my_feed = MyFeed {
+                maxfeed: self.account_settings_map.get(&caller).unwrap_or_default().max_feed,
+                blocked: self.account_blocked_map.get(&caller).unwrap_or_default().blocked,
+                myfeed: message_list
             };
-            let blocked_accounts = self.account_blocked_map.get(&caller).unwrap_or_default();
             // return the results
-            (max_feed, blocked_accounts, message_list)
+            my_feed
 
         }
 
@@ -1088,7 +1146,7 @@ mod geode_social {
         // given an accountId, returns the details of every paid message, sent by anyone, that matches 
         // the interests of the given accountId AND still has paid endorsements available
         #[ink(message)]
-        pub fn get_paid_feed(&self) -> (MaxFeed, Blocked, Vec<PaidMessageDetails>) {
+        pub fn get_paid_feed(&self) -> MyPaidFeed {
             // set up the return data structure
             let mut message_list: Vec<PaidMessageDetails> = Vec::new();
             // make a vector of all paid message id hashes that match this account's interests
@@ -1138,13 +1196,14 @@ mod geode_social {
             // Meanwhile, the advertiser gets a bonus by putting this message in front of this
             // user repeatedly for free until the total endorsements have run out. 
 
-            // return the results for display
-            let max_paid_feed = MaxFeed {
-                maxfeed: self.account_settings_map.get(&caller).unwrap_or_default().max_paid_feed
+            // package the results
+            let my_paid_feed = MyPaidFeed {
+                maxfeed: self.account_settings_map.get(&caller).unwrap_or_default().max_paid_feed,
+                blocked: self.account_blocked_map.get(&caller).unwrap_or_default().blocked,
+                mypaidfeed: message_list
             };
-            let blocked_accounts = self.account_blocked_map.get(&caller).unwrap_or_default();
             // return the results
-            (max_paid_feed, blocked_accounts, message_list)
+            my_paid_feed
 
         }  
 
@@ -1152,8 +1211,7 @@ mod geode_social {
         // 🟢 GET THE FULL SOCIAL APP PROFILE FOR ANY GIVEN ACCOUNT
         // Followers, Following, all messages sent and elevated/endorsed
         #[ink(message)]
-        pub fn get_account_profile(&self, user: AccountId) -> 
-        (Followers, Following, Vec<MessageDetails>) {
+        pub fn get_account_profile(&self, user: AccountId) -> SocialProfile {
             // set up the return data structures
             let mut message_list: Vec<MessageDetails> = Vec::new();
             let followers_list = self.account_followers_map.get(&user).unwrap_or_default();
@@ -1174,8 +1232,15 @@ mod geode_social {
                 // add the details to the message_list vector
                 message_list.push(details);
             }
+            // package the results
+            let social_profile = SocialProfile {
+                followers: followers_list,
+                following: following_list,
+                message_list: message_list,
+            };
             // return the results
-            (followers_list, following_list, message_list)
+            social_profile
+
         }
 
 

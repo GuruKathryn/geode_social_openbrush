@@ -157,7 +157,6 @@ mod geode_social {
     )]
     pub struct PaidMessageDetails {
         message_id: Hash,
-        reply_to: Hash,
         from_acct: AccountId,
         username: Vec<u8>,
         message: Vec<u8>,
@@ -175,7 +174,6 @@ mod geode_social {
         fn default() -> PaidMessageDetails {
             PaidMessageDetails {
                 message_id: Hash::default(),
-                reply_to: Hash::default(),
                 from_acct: ZERO_ADDRESS.into(),
                 username: <Vec<u8>>::default(),
                 message: <Vec<u8>>::default(),
@@ -258,6 +256,7 @@ mod geode_social {
     )]
     pub struct MyPaidFeed {
         maxfeed: u128,
+        myinterests: Vec<u8>,
         blocked: Vec<AccountId>,
         mypaidfeed: Vec<PaidMessageDetails>,
     }
@@ -266,6 +265,7 @@ mod geode_social {
         fn default() -> MyPaidFeed {
             MyPaidFeed {
               maxfeed: 1000,
+              myinterests: <Vec<u8>>::default(),
               blocked: <Vec<AccountId>>::default(),
               mypaidfeed: <Vec<PaidMessageDetails>>::default(),
             }
@@ -576,8 +576,7 @@ mod geode_social {
             new_message: Vec<u8>,
             photo_or_other_link: Vec<u8>,
             maximum_number_of_paid_endorsers: u128,
-            target_interests: Vec<u8>,
-            replying_to: Hash
+            target_interests: Vec<u8>
         ) -> Result<(), Error> {
 
             let new_message_clone = new_message.clone();
@@ -604,13 +603,12 @@ mod geode_social {
             // SET PAYMENT PER ENDORSER (based on the actual staked amount)
             let payment_per_endorser: Balance = staked / maximum_number_of_paid_endorsers;
 
-            // UPDATE THE MESSAGES MAP WITH THE DETAILS
+            // UPDATE THE PAID MESSAGES MAP WITH THE DETAILS
             let caller = Self::env().caller();
             let fromusername = self.account_settings_map.get(caller).unwrap_or_default().username;
             // set up the paid message details
             let new_details = PaidMessageDetails {
                     message_id: new_message_id,
-                    reply_to: replying_to,
                     from_acct: Self::env().caller(),
                     username: fromusername,
                     message: new_message_clone,
@@ -654,49 +652,6 @@ mod geode_social {
                 self.target_interests_vec.push(interests_clone);
             }
 
-            // UPDATE THE MESSAGE REPLY MAP IF REPLYING_TO IS FILLED IN
-            // if the replying_to input is blank, do nothing
-            // convert the hash to a string to use the is_empty method
-            let blank: Hash = Hash::default();
-            if replying_to == blank {
-                // do nothing here, proceed to the next step
-            }
-            else {
-                // if the replying_to input is not blank, check to make sure it is legit
-                // if the replying_to is legit, update the message reply map and increment the reply count
-                if self.message_map.contains(&replying_to) {
-                    // get the vector of replies for the original message
-                    let mut current_replies = self.message_reply_map.get(&replying_to).unwrap_or_default();
-                    // add this message to the replies vector for that original message
-                    current_replies.messages.push(new_message_id);
-                    // update the message_reply_map
-                    self.message_reply_map.insert(&replying_to, &current_replies);
-                    // get the details for the original message
-                    let original_message_details = self.message_map.get(&replying_to).unwrap_or_default();
-                    // increment the number of replies to the original message
-                    let new_reply_count = original_message_details.reply_count + 1;
-                    // set up the updated message details for that original message
-                    let orig_msg_details_update = MessageDetails {
-                        message_id: original_message_details.message_id,
-                        reply_to: original_message_details.reply_to,
-                        from_acct: original_message_details.from_acct,
-                        username: original_message_details.username,
-                        message: original_message_details.message,
-                        link: original_message_details.link,
-                        endorser_count: original_message_details.endorser_count,
-                        reply_count: new_reply_count,
-                        timestamp: original_message_details.timestamp,
-                        endorsers: original_message_details.endorsers
-                    };
-                    // update the message_map with the updated details
-                    self.message_map.insert(&replying_to, &orig_msg_details_update);
-                }
-                else {
-                    // if the replying_to message hash does not exist, send an error
-                    return Err(Error::ReplyingToMessageDoesNotExist)
-                }
-            }
-
             // EMIT AN EVENT (to register the post to the chain)
             Self::env().emit_event(PaidMessageBroadcast {
                 from: Self::env().caller(),
@@ -719,11 +674,7 @@ mod geode_social {
         // 🟢 ELEVATE MESSAGE 
         // upvotes a public message by endorsing it on chain (unpaid) 
         #[ink(message)]
-        pub fn elevate_message(
-            &mut self,
-            owner: AccountId,
-            this_message_id: Hash
-        ) -> Result<(), Error> {
+        pub fn elevate_message(&mut self, this_message_id: Hash) -> Result<(), Error> {
             
             // Does the message_id exist in the message_map? ...
             if self.message_map.contains(&this_message_id) {
@@ -792,8 +743,7 @@ mod geode_social {
         // endorses a paid message and pays the endorser accordingly
         #[ink(message)]
         #[openbrush::modifiers(non_reentrant)]
-        pub fn elevate_paid_message(&mut self, owner: AccountId, this_message_id: Hash
-        ) -> Result<(), Error> {
+        pub fn elevate_paid_message(&mut self, this_message_id: Hash) -> Result<(), Error> {
 
             // Does the message_id exist in the paid_message_map? If TRUE then...
             if self.paid_message_map.contains(&this_message_id) {
@@ -1096,10 +1046,12 @@ mod geode_social {
 
         // 🟢 GET PUBLIC FEED
         // given an accountId, retuns the details of all public posts sent by all accounts they follow
+        // any messages elevated/endorsed by those accounts and all replies to those posts by anyone
         #[ink(message)]
         pub fn get_public_feed(&self) -> MyFeed {
-            // get the list of accounts they are following as a vector of AccountIds
+            // identify the caller
             let caller = Self::env().caller();
+            // get the list of accounts they are following as a vector of AccountIds
             let accountvec = self.account_following_map.get(&caller).unwrap_or_default().following;
             // set up the return data structure
             let mut message_list: Vec<MessageDetails> = Vec::new();
@@ -1114,7 +1066,16 @@ mod geode_social {
                     let details = self.message_map.get(&messageidhash).unwrap_or_default();
                     // add the details to the message_list vector
                     message_list.push(details);
-                    // loop back and do the same for each account
+                    // get the reply message IDs for that message
+                    let reply_idvec = self.message_reply_map.get(&messageidhash).unwrap_or_default().messages;
+                    // for each reply, get the details and add it to the return vector
+                    for replyidhash in reply_idvec.iter() {
+                        // get the detials for that reply
+                        let replydetails = self.message_map.get(&replyidhash).unwrap_or_default();
+                        // add the details to the message_list vector
+                        message_list.push(replydetails);
+                    }
+                    // loop back and do the same for each account the user is following
                 }
                 // then get the list of messages elevated by that account and get the details for those
                 let elevated_idvec = self.account_elevated_map.get(account).unwrap_or_default().elevated;
@@ -1123,11 +1084,20 @@ mod geode_social {
                     let details = self.message_map.get(&messageidhash).unwrap_or_default();
                     // add the details to the message_list vector
                     message_list.push(details);
+                    // get the reply message IDs for that message
+                    let reply_idvec = self.message_reply_map.get(&messageidhash).unwrap_or_default().messages;
+                    // for each reply, get the details and add the details to the return vector
+                    for replyidhash in reply_idvec.iter() {
+                        // get the detials for that reply
+                        let replydetails = self.message_map.get(&replyidhash).unwrap_or_default();
+                        // add the details to the message_list vector
+                        message_list.push(replydetails);
+                    }
                     // loop back and do the same for each account
                 }
                 // At this point you should have all the messages sent and all the messages elevated by
-                // every account you follow. It will be up to the front end to limit the display
-                // and to order them by timestamp.
+                // every account you follow, and all the replies to those messages by anyone. It will be 
+                // up to the front end to limit the display and to order them by timestamp, etc.
             }
 
             // package the results
@@ -1138,11 +1108,11 @@ mod geode_social {
             };
             // return the results
             my_feed
-
+           
         }
 
 
-        // 🟢 GET PAID FEED 
+        // 🟢 GET PAID FEED 🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑 include MyInterests in return struct
         // given an accountId, returns the details of every paid message, sent by anyone, that matches 
         // the interests of the given accountId AND still has paid endorsements available
         #[ink(message)]
@@ -1199,6 +1169,7 @@ mod geode_social {
             // package the results
             let my_paid_feed = MyPaidFeed {
                 maxfeed: self.account_settings_map.get(&caller).unwrap_or_default().max_paid_feed,
+                myinterests: self.account_settings_map.get(&caller).unwrap_or_default().interests,
                 blocked: self.account_blocked_map.get(&caller).unwrap_or_default().blocked,
                 mypaidfeed: message_list
             };
@@ -1266,7 +1237,7 @@ mod geode_social {
         }
 
 
-        // SEARCH MESSAGES BY KEYWORD
+        // 🟢 SEARCH MESSAGES BY KEYWORD
         // Returns all the messages that include a given a keyword or phrase
         #[ink(message)]
         pub fn get_messages_by_keyword(&self, keywords: Vec<u8>) -> Vec<MessageDetails> {
@@ -1324,14 +1295,6 @@ mod geode_social {
             }
             // return the block count
             block_count
-        }
-
-        // GET ACCOUNT SETTINGS
-        // get the current settings for a given AccountId
-        #[ink(message)]
-        pub fn get_account_settings(&self, user: AccountId) -> Settings {
-            let current_settings = self.account_settings_map.get(&user).unwrap_or_default();
-            current_settings
         }
 
         // GET ACCOUNT MESSAGES

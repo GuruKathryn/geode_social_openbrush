@@ -321,7 +321,6 @@ mod geode_social {
         #[ink(topic)]
         message_id: Hash,
         link: Vec<u8>,
-        reply_to: Hash,
         timestamp: u64,
         paid_endorser_max: u128,
         endorser_payment: Balance,
@@ -658,7 +657,6 @@ mod geode_social {
                 message: new_message_clone2,
                 message_id: new_message_id,
                 link: link_clone,
-                reply_to: replying_to,
                 timestamp: self.env().block_timestamp(),
                 paid_endorser_max: maximum_number_of_paid_endorsers,
                 endorser_payment: payment_per_endorser,
@@ -722,7 +720,7 @@ mod geode_social {
 
                     // Emit an event to register the endorsement to the chain...
                     Self::env().emit_event(MessageElevated {
-                        from: owner,
+                        from: updated_details.from_acct,
                         message_id: this_message_id,
                         endorser: Self::env().caller()
                     });
@@ -784,7 +782,6 @@ mod geode_social {
                             // Update the details in storage for this paid message
                             let updated_details: PaidMessageDetails = PaidMessageDetails {
                                 message_id: current_details.message_id,
-                                reply_to: current_details.reply_to,
                                 from_acct: current_details.from_acct,
                                 username: current_details.username,
                                 message: current_details.message,
@@ -808,7 +805,7 @@ mod geode_social {
 
                             // Emit an event to register the endorsement to the chain
                             Self::env().emit_event(PaidMessageElevated {
-                                from: owner,
+                                from: updated_details.from_acct,
                                 message_id: this_message_id,
                                 endorser: Self::env().caller()
                             });

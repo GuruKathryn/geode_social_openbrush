@@ -421,6 +421,7 @@ mod geode_social {
         target_interests_vec: Vec<Vec<u8>>,
         message_reply_map: Mapping<Hash, Messages>,
         username_map: Mapping<Vec<u8>, AccountId>,
+        all_accounts_with_settings: Vec<AccountId>,
     }
 
 
@@ -451,6 +452,7 @@ mod geode_social {
                 target_interests_vec: <Vec<Vec<u8>>>::default(),
                 message_reply_map: Mapping::default(),
                 username_map: Mapping::default(),
+                all_accounts_with_settings: <Vec<AccountId>>::default(),
             }
         }
 
@@ -1013,9 +1015,18 @@ mod geode_social {
                     if self.username_map.contains(username_clone1) {
                         // get the account that owns that username
                         let current_owner = self.username_map.get(&username_clone2).unwrap();
-                        // if the caller owns that username, update the storage map
+                        // if the caller owns that username, update the storage maps
                         if current_owner == caller {
                             self.account_settings_map.insert(&caller, &settings_update);
+                            // add this account to the vector of accounts with settings
+                            if self.all_accounts_with_settings.contains(&caller) {
+                                // do nothing
+                            }
+                            else {
+                                // add the caller to the vector of accounts with settings
+                                self.all_accounts_with_settings.push(&caller);
+                            }
+                            
                         }
                         else {
                             // if the username belongs to someone else, send an error UsernameTaken
@@ -1027,6 +1038,14 @@ mod geode_social {
                         self.account_settings_map.insert(&caller, &settings_update);
                         // then update the username map
                         self.username_map.insert(&username_clone3, &caller);
+                        // then add this account to the vector of accounts with settings
+                        if self.all_accounts_with_settings.contains(&caller) {
+                            // do nothing
+                        }
+                        else {
+                            // add the caller to the vector of accounts with settings
+                            self.all_accounts_with_settings.push(&caller);
+                        }
                     }
                 }
                 
@@ -1109,7 +1128,7 @@ mod geode_social {
         }
 
 
-        // 🟢 GET PAID FEED 🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑 include MyInterests in return struct
+        // 🟢 GET PAID FEED
         // given an accountId, returns the details of every paid message, sent by anyone, that matches 
         // the interests of the given accountId AND still has paid endorsements available
         #[ink(message)]
@@ -1259,6 +1278,26 @@ mod geode_social {
             matching_messages
         }
 
+
+        // GET ACCOUNT INTERESTS KEYWORDS FOR ANALYSIS
+        // returns all the data avialable about interest keywords so that the front end can 
+        // offer analysis of the most popular interests, frequency per word or phrase, and
+        // a search option to see how many accounts have a given interest
+        #[ink(message)]
+        pub fn get_interests_data(&self) -> Vec<u8> {
+            // set up the results vector
+            let mut interests_data: Vec<u8> = Vec::new();
+            // for each account with settings, add their interests to the results vector
+            for acct in self.all_accounts_with_settings.iter() {
+                // get their interests
+                let interests = self.account_settings_map.get(&acct).unwrap_or_default().interests;
+                let mut interests_clone = interests.clone();
+                // add their interests to the results vector (append will eat the clone)
+                interests_data.append(&mut interests_clone);
+            }
+            // return the results
+            interests_data
+        }
 
 
         // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>

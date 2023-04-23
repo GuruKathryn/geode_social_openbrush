@@ -1024,7 +1024,7 @@ mod geode_social {
                             }
                             else {
                                 // add the caller to the vector of accounts with settings
-                                self.all_accounts_with_settings.push(&caller);
+                                self.all_accounts_with_settings.push(caller);
                             }
                             
                         }
@@ -1044,7 +1044,7 @@ mod geode_social {
                         }
                         else {
                             // add the caller to the vector of accounts with settings
-                            self.all_accounts_with_settings.push(&caller);
+                            self.all_accounts_with_settings.push(caller);
                         }
                     }
                 }

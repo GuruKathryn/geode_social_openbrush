@@ -1293,6 +1293,8 @@ mod geode_social {
                 let interests = self.account_settings_map.get(&acct).unwrap_or_default().interests;
                 let mut interests_clone = interests.clone();
                 // add their interests to the results vector (append will eat the clone)
+                let mut comma = vec![2c 20];
+                interests_data.append(&mut comma);
                 interests_data.append(&mut interests_clone);
             }
             // return the results

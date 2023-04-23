@@ -1279,7 +1279,7 @@ mod geode_social {
         }
 
 
-        // GET ACCOUNT INTERESTS KEYWORDS FOR ANALYSIS
+        // 🟢 GET ACCOUNT INTERESTS KEYWORDS FOR ANALYSIS
         // returns all the data avialable about interest keywords so that the front end can 
         // offer analysis of the most popular interests, frequency per word or phrase, and
         // a search option to see how many accounts have a given interest

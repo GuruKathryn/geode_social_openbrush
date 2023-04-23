@@ -1284,19 +1284,16 @@ mod geode_social {
         // offer analysis of the most popular interests, frequency per word or phrase, and
         // a search option to see how many accounts have a given interest
         #[ink(message)]
-        pub fn get_interests_data(&self) -> Vec<u8> {
+        pub fn get_interests_data(&self) -> Vec<Vec<u8>> {
             // set up the results vector
-            let mut interests_data: Vec<u8> = Vec::new();
+            let mut interests_data: Vec<Vec<u8>> = Vec::new();
             // for each account with settings, add their interests to the results vector
             for acct in self.all_accounts_with_settings.iter() {
                 // get their interests
                 let interests = self.account_settings_map.get(&acct).unwrap_or_default().interests;
-                let mut interests_clone = interests.clone();
+                let interests_clone = interests.clone();
                 // add their interests to the results vector
-                for element in interests_clone {
-                    interests_data.push(element);
-                }
-                
+                interests_data.push(interests_clone);
             }
             // return the results
             interests_data

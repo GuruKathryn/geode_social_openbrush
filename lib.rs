@@ -1304,6 +1304,13 @@ mod geode_social {
         // >>>>>>>>>>>>>>>>>>>>>>>>>> SECONDARY GET MESSAGES <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
         // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
+        // GET THE FULL LIST OF ALL ACCOUNTS WHO HAVE DATA IN THIER SETTINGS 
+        #[ink(message)]
+        pub fn get_all_accounts_with_settings(&self) -> Vec<AccountId> {
+            let accts = self.all_accounts_with_settings.clone();
+            accts
+        }
+
         // GET THE FULL LIST OF ALL ACCOUNTS EVER BLOCKED BY ANYONE
         // An account might show up several times if they were blocked by several people or
         // if they were blocked repeatedly by the same person 

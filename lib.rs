@@ -279,16 +279,16 @@ mod geode_social {
         )
     )]
     pub struct SocialProfile {
-        followers: Followers,
-        following: Following,
+        followers: Vec<AccountId>,
+        following: Vec<AccountId>,
         message_list: Vec<MessageDetails>,
     }
 
     impl Default for SocialProfile {
         fn default() -> SocialProfile {
             SocialProfile {
-              followers: Followers::default(),
-              following: Following::default(),
+              followers: <Vec<AccountId>>::default(),
+              following: <Vec<AccountId>>::default(),
               message_list: <Vec<MessageDetails>>::default(),
             }
         }

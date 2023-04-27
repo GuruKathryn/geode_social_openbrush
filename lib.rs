@@ -1201,8 +1201,8 @@ mod geode_social {
         pub fn get_account_profile(&self, user: AccountId) -> SocialProfile {
             // set up the return data structures
             let mut message_list: Vec<MessageDetails> = Vec::new();
-            let followers_list = self.account_followers_map.get(&user).unwrap_or_default();
-            let following_list = self.account_following_map.get(&user).unwrap_or_default();
+            let followers_list = self.account_followers_map.get(&user).unwrap_or_default().followers;
+            let following_list = self.account_following_map.get(&user).unwrap_or_default().following;
             // get the vector of sent message_ids
             let message_idvec = self.account_messages_map.get(&user).unwrap_or_default().messages;
             for messageidhash in message_idvec.iter() {

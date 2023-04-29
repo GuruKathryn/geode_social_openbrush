@@ -279,6 +279,8 @@ mod geode_social {
         )
     )]
     pub struct SocialProfile {
+        searched_account: AccountId,
+        username: Vec<u8>,
         followers: Vec<AccountId>,
         following: Vec<AccountId>,
         message_list: Vec<MessageDetails>,
@@ -287,9 +289,11 @@ mod geode_social {
     impl Default for SocialProfile {
         fn default() -> SocialProfile {
             SocialProfile {
-              followers: <Vec<AccountId>>::default(),
-              following: <Vec<AccountId>>::default(),
-              message_list: <Vec<MessageDetails>>::default(),
+                searched_account: ZERO_ADDRESS.into(),
+                username: <Vec<u8>>::default(),
+                followers: <Vec<AccountId>>::default(),
+                following: <Vec<AccountId>>::default(),
+                message_list: <Vec<MessageDetails>>::default(),
             }
         }
     }
@@ -1201,6 +1205,7 @@ mod geode_social {
         pub fn get_account_profile(&self, user: AccountId) -> SocialProfile {
             // set up the return data structures
             let mut message_list: Vec<MessageDetails> = Vec::new();
+            let user_name = self.account_settings_map.get(&user).unwrap_or_default().username;
             let followers_list = self.account_followers_map.get(&user).unwrap_or_default().followers;
             let following_list = self.account_following_map.get(&user).unwrap_or_default().following;
             // get the vector of sent message_ids
@@ -1221,6 +1226,8 @@ mod geode_social {
             }
             // package the results
             let social_profile = SocialProfile {
+                searched_account: user,
+                username: user_name,
                 followers: followers_list,
                 following: following_list,
                 message_list: message_list,

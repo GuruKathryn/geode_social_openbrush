@@ -298,6 +298,26 @@ mod geode_social {
         }
     }
 
+    #[derive(Clone, scale::Decode, scale::Encode)]
+    #[cfg_attr(feature = "std",
+        derive(ink::storage::traits::StorageLayout, 
+            scale_info::TypeInfo, Debug, PartialEq, Eq
+        )
+    )]
+    pub struct KeywordSearchResults {
+        search: Vec<u8>,
+        message_list: Vec<MessageDetails>,
+    }
+
+    impl Default for KeywordSearchResults {
+        fn default() -> KeywordSearchResults {
+            KeywordSearchResults {
+                search: <Vec<u8>>::default(),
+                message_list: <Vec<MessageDetails>>::default(),
+            }
+        }
+    }
+
 
     // EVENT DEFINITIONS >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
@@ -1260,10 +1280,10 @@ mod geode_social {
         }
 
 
-        // 🟢 SEARCH MESSAGES BY KEYWORD
+        // 🟢 SEARCH MESSAGES BY KEYWORD 🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑
         // Returns all the messages that include a given a keyword or phrase
         #[ink(message)]
-        pub fn get_messages_by_keyword(&self, keywords: Vec<u8>) -> Vec<MessageDetails> {
+        pub fn get_messages_by_keyword(&self, keywords: Vec<u8>) -> KeywordSearchResults {
             // set up your results vector
             let mut matching_messages: Vec<MessageDetails> = Vec::new();
             // iterate over the messages_vec
@@ -1281,8 +1301,15 @@ mod geode_social {
                 }
                 //continue iterating
             }
+
+            // package the results
+            let results = KeywordSearchResults {
+                search: keywords,
+                message_list: matching_messages,
+            };
             // return the results
-            matching_messages
+            results
+            
         }
 
 

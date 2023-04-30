@@ -1280,7 +1280,7 @@ mod geode_social {
         }
 
 
-        // 🟢 SEARCH MESSAGES BY KEYWORD 🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑
+        // 🟢 SEARCH MESSAGES BY KEYWORD
         // Returns all the messages that include a given a keyword or phrase
         #[ink(message)]
         pub fn get_messages_by_keyword(&self, keywords: Vec<u8>) -> KeywordSearchResults {

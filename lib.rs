@@ -502,7 +502,7 @@ mod geode_social {
 
             let new_message_clone = new_message.clone();
             let new_message_clone2 = new_message.clone();
-            let link_clone = photo_or_other_link.clone();
+            let link_clone = photo_or_youtube_link.clone();
             let link2_clone = website_or_document_link.clone();
 
             // set up the data that will go into the new_message_id
@@ -569,7 +569,7 @@ mod geode_social {
                 from_acct: Self::env().caller(),
                 username: fromusername,
                 message: new_message_clone,
-                link: photo_or_other_link,
+                link: photo_or_youtube_link,
                 link2: website_or_document_link,
                 endorser_count: 0,
                 reply_count: 0,
@@ -622,7 +622,7 @@ mod geode_social {
             let new_message_clone2 = new_message.clone();
             let interests_clone = target_interests.clone();
             let interests_clone2 = target_interests.clone();
-            let link_clone = photo_or_other_link.clone();
+            let link_clone = photo_or_youtube_link.clone();
             let link2_clone = website_or_document_link.clone();
             
             // CREATE THE MESSAGE ID HASH
@@ -652,7 +652,7 @@ mod geode_social {
                     from_acct: Self::env().caller(),
                     username: fromusername,
                     message: new_message_clone,
-                    link: photo_or_other_link,
+                    link: photo_or_youtube_link,
                     link2: website_or_document_link,
                     endorser_count: 0,
                     timestamp: self.env().block_timestamp(),

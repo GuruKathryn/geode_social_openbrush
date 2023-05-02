@@ -161,6 +161,7 @@ mod geode_social {
         username: Vec<u8>,
         message: Vec<u8>,
         link: Vec<u8>,
+        link2: Vec<u8>,
         endorser_count: u128,
         timestamp: u64,
         paid_endorser_max: u128,
@@ -178,6 +179,7 @@ mod geode_social {
                 username: <Vec<u8>>::default(),
                 message: <Vec<u8>>::default(),
                 link: <Vec<u8>>::default(),
+                link2: <Vec<u8>>::default(),
                 endorser_count: 0,
                 timestamp: u64::default(),
                 paid_endorser_max: u128::default(),
@@ -203,6 +205,7 @@ mod geode_social {
         username: Vec<u8>,
         message: Vec<u8>,
         link: Vec<u8>,
+        link2: Vec<u8>,
         endorser_count: u128,
         reply_count: u128,
         timestamp: u64,
@@ -218,6 +221,7 @@ mod geode_social {
                 username: <Vec<u8>>::default(),
                 message: <Vec<u8>>::default(),
                 link: <Vec<u8>>::default(),
+                link2: <Vec<u8>>::default(),
                 endorser_count: 0,
                 reply_count: 0,
                 timestamp: u64::default(),
@@ -331,6 +335,7 @@ mod geode_social {
         #[ink(topic)]
         message_id: Hash,
         link: Vec<u8>,
+        link2: Vec<u8>,
         reply_to: Hash,
         timestamp: u64
     }
@@ -345,6 +350,7 @@ mod geode_social {
         #[ink(topic)]
         message_id: Hash,
         link: Vec<u8>,
+        link2: Vec<u8>,
         timestamp: u64,
         paid_endorser_max: u128,
         endorser_payment: Balance,
@@ -488,12 +494,16 @@ mod geode_social {
         // sends a broadcast public message on the chain
         #[ink(message)]
         pub fn send_message_public (&mut self, 
-            new_message: Vec<u8>, photo_or_other_link: Vec<u8>, replying_to: Hash
+            new_message: Vec<u8>, 
+            photo_or_youtube_link: Vec<u8>, 
+            website_or_document_link: Vec<u8>, 
+            replying_to: Hash
         ) -> Result<(), Error> {
 
             let new_message_clone = new_message.clone();
             let new_message_clone2 = new_message.clone();
             let link_clone = photo_or_other_link.clone();
+            let link2_clone = website_or_document_link.clone();
 
             // set up the data that will go into the new_message_id
             let from = Self::env().caller();
@@ -534,6 +544,7 @@ mod geode_social {
                         username: original_message_details.username,
                         message: original_message_details.message,
                         link: original_message_details.link,
+                        link2: original_message_details.link2,
                         endorser_count: original_message_details.endorser_count,
                         reply_count: new_reply_count,
                         timestamp: original_message_details.timestamp,
@@ -559,6 +570,7 @@ mod geode_social {
                 username: fromusername,
                 message: new_message_clone,
                 link: photo_or_other_link,
+                link2: website_or_document_link,
                 endorser_count: 0,
                 reply_count: 0,
                 timestamp: self.env().block_timestamp(),
@@ -585,6 +597,7 @@ mod geode_social {
                 message: new_message_clone2,
                 message_id: new_message_id,
                 link: link_clone,
+                link2: link2_clone,
                 reply_to: replying_to,
                 timestamp: self.env().block_timestamp()
             });
@@ -599,7 +612,8 @@ mod geode_social {
         #[ink(message, payable)]
         pub fn send_paid_message_public (&mut self, 
             new_message: Vec<u8>,
-            photo_or_other_link: Vec<u8>,
+            photo_or_youtube_link: Vec<u8>,
+            website_or_document_link: Vec<u8>,
             maximum_number_of_paid_endorsers: u128,
             target_interests: Vec<u8>
         ) -> Result<(), Error> {
@@ -609,6 +623,7 @@ mod geode_social {
             let interests_clone = target_interests.clone();
             let interests_clone2 = target_interests.clone();
             let link_clone = photo_or_other_link.clone();
+            let link2_clone = website_or_document_link.clone();
             
             // CREATE THE MESSAGE ID HASH
             // set up the data that will go into the new_message_id
@@ -638,6 +653,7 @@ mod geode_social {
                     username: fromusername,
                     message: new_message_clone,
                     link: photo_or_other_link,
+                    link2: website_or_document_link,
                     endorser_count: 0,
                     timestamp: self.env().block_timestamp(),
                     paid_endorser_max: maximum_number_of_paid_endorsers,
@@ -683,6 +699,7 @@ mod geode_social {
                 message: new_message_clone2,
                 message_id: new_message_id,
                 link: link_clone,
+                link2: link2_clone,
                 timestamp: self.env().block_timestamp(),
                 paid_endorser_max: maximum_number_of_paid_endorsers,
                 endorser_payment: payment_per_endorser,
@@ -730,6 +747,7 @@ mod geode_social {
                         username: current_details.username,
                         message: current_details.message,
                         link: current_details.link,
+                        link2: current_details.link2,
                         endorser_count: new_endorser_count,
                         reply_count: current_details.reply_count,
                         timestamp: current_details.timestamp,
@@ -812,6 +830,7 @@ mod geode_social {
                                 username: current_details.username,
                                 message: current_details.message,
                                 link: current_details.link,
+                                link2: current_details.link2,
                                 endorser_count: new_endorser_count,
                                 timestamp: current_details.timestamp,
                                 paid_endorser_max: current_details.paid_endorser_max,

@@ -1357,14 +1357,14 @@ mod geode_social {
         // >>>>>>>>>>>>>>>>>>>>>>>>>> SECONDARY GET MESSAGES <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
         // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-        // GET THE FULL LIST OF ALL ACCOUNTS WHO HAVE DATA IN THIER SETTINGS 
+        // 🟢 GET THE FULL LIST OF ALL ACCOUNTS WHO HAVE DATA IN THIER SETTINGS 
         #[ink(message)]
         pub fn get_all_accounts_with_settings(&self) -> Vec<AccountId> {
             let accts = self.all_accounts_with_settings.clone();
             accts
         }
 
-        // GET THE FULL LIST OF ALL ACCOUNTS EVER BLOCKED BY ANYONE
+        // 🟢 GET THE FULL LIST OF ALL ACCOUNTS EVER BLOCKED BY ANYONE
         // An account might show up several times if they were blocked by several people or
         // if they were blocked repeatedly by the same person 
         #[ink(message)]
@@ -1373,7 +1373,7 @@ mod geode_social {
             all_blocked
         }
 
-        // SEE HOW MANY TIMES AN ACCOUNT WAS BLOCKED
+        // 🟢 SEE HOW MANY TIMES AN ACCOUNT WAS BLOCKED
         // the user can input an accountID and see how many times it was ever blocked
         // even if it is not currently blocked by anyone
         #[ink(message)]
@@ -1393,7 +1393,7 @@ mod geode_social {
             block_count
         }
 
-        // GET ACCOUNT MESSAGES
+        // 🟢 GET ACCOUNT MESSAGES
         // given an accountId, returns the details of every unpaid message sent by that account
         #[ink(message)]
         pub fn get_account_messages(&self, user: AccountId) -> Vec<MessageDetails> {
@@ -1410,7 +1410,7 @@ mod geode_social {
         }
 
 
-        // GET ACCOUNT PAID MESSAGES
+        // 🟢 GET ACCOUNT PAID MESSAGES
         // given an accountId, returns the details of every paid message sent by that account
         #[ink(message)]
         pub fn get_account_paid_messages(&self, user: AccountId) -> Vec<PaidMessageDetails> {
@@ -1427,7 +1427,7 @@ mod geode_social {
         }
 
 
-        // GET ACCOUNT ENDORSED MESSAGES
+        // 🟢 GET ACCOUNT ENDORSED MESSAGES
         // given an accountId, returns the details of every unpaid message they endorsed/elevated
         #[ink(message)]
         pub fn get_account_endorsed_messages(&self, user: AccountId) -> Vec<MessageDetails> {
@@ -1444,79 +1444,79 @@ mod geode_social {
         }
 
 
-        // get the message_ids for all the messages sent by a given AccountId
+        // 🟢 get the message_ids for all the messages sent by a given AccountId
         #[ink(message)]
         pub fn get_messages_sent_by_account(&self, user: AccountId) -> Vec<Hash> {
             self.account_messages_map.get(&user).unwrap_or_default().messages
         }
 
-        // get number of messages sent by a given AccountId
+        // 🟢 get number of messages sent by a given AccountId
         #[ink(message)]
         pub fn get_number_messages_sent_by_account(&self, user: AccountId) -> u128 {
             self.account_messages_map.get(&user).unwrap_or_default().messages.len().try_into().unwrap()
         }
 
-        // get the PAID message_ids for all the messages sent by a given AccountId
+        // 🟢 get the PAID message_ids for all the messages sent by a given AccountId
         #[ink(message)]
         pub fn get_paid_messages_sent_by_account(&self, user: AccountId) -> Vec<Hash> {
             self.account_paid_messages_map.get(&user).unwrap_or_default().messages
         }
 
-        // get the number of PAID messages sent by a given AccountId
+        // 🟢 get the number of PAID messages sent by a given AccountId
         #[ink(message)]
         pub fn get_number_paid_messages_sent_by_account(&self, user: AccountId) -> u128 {
             self.account_paid_messages_map.get(&user).unwrap_or_default().messages.len().try_into().unwrap()
         }
 
-        // get the message_ids for all the messages elevated by a given AccountId
+        // 🟢 get the message_ids for all the messages elevated by a given AccountId
         #[ink(message)]
         pub fn get_messages_elevated_by_account(&self, user: AccountId) -> Vec<Hash> {
             self.account_elevated_map.get(&user).unwrap_or_default().elevated
         }
 
-        // get number of messages elevated by a given AccountId
+        // 🟢 get number of messages elevated by a given AccountId
         #[ink(message)]
         pub fn get_number_messages_elevated_by_account(&self, user: AccountId) -> u128 {
             self.account_elevated_map.get(&user).unwrap_or_default().elevated.len().try_into().unwrap()
         }
 
-        // get the PAID message_ids for all the PAID messages elevated by a given AccountId
+        // 🟢 get the PAID message_ids for all the PAID messages elevated by a given AccountId
         #[ink(message)]
         pub fn get_paid_messages_elevated_by_account(&self, user: AccountId) -> Vec<Hash> {
             self.account_paid_elevated_map.get(&user).unwrap_or_default().elevated
         }
 
-        // get the number of PAID messages elevated by a given AccountId
+        // 🟢 get the number of PAID messages elevated by a given AccountId
         #[ink(message)]
         pub fn get_number_paid_messages_elevated_by_account(&self, user: AccountId) -> u128 {
             self.account_paid_elevated_map.get(&user).unwrap_or_default().elevated.len().try_into().unwrap()
         }
 
-        // get the vector of accounts followed by a given AccountId
+        // 🟢 get the vector of accounts followed by a given AccountId
         #[ink(message)]
         pub fn get_account_following(&self, user: AccountId) -> Vec<AccountId> {
             self.account_following_map.get(&user).unwrap_or_default().following
         }
 
-        // get the number of accounts followed by a given AccountId
+        // 🟢 get the number of accounts followed by a given AccountId
         #[ink(message)]
         pub fn get_account_following_count(&self, user: AccountId) -> u128 {
             self.account_following_map.get(&user).unwrap_or_default().following.len().try_into().unwrap()
         }
 
-        // get the vector of accounts that are followers of a given AccountId
+        // 🟢 get the vector of accounts that are followers of a given AccountId
         #[ink(message)]
         pub fn get_followers(&self, user: AccountId) -> Vec<AccountId> {
             self.account_followers_map.get(&user).unwrap_or_default().followers
         }
 
-        // get the number of accounts that are followers of a given AccountId
+        // 🟢 get the number of accounts that are followers of a given AccountId
         #[ink(message)]
         pub fn get_followers_count(&self, user: AccountId) -> u128 {
             self.account_followers_map.get(&user).unwrap_or_default().followers.len().try_into().unwrap()
         }
 
-        // Get the details on a paid message post, given the message_id hash.  
+        // 🟢 Get the details on a paid message post, given the message_id hash.  
         #[ink(message)]
         pub fn get_details_for_paid_message(&self, message_id: Hash
         ) -> PaidMessageDetails {
@@ -1527,7 +1527,7 @@ mod geode_social {
             details
         }
 
-        // Get the details on a public message post, given the message_id hash.  
+        // 🟢 Get the details on a public message post, given the message_id hash.  
         #[ink(message)]
         pub fn get_details_for_message(&self, message_id: Hash
         ) -> MessageDetails {
@@ -1538,13 +1538,13 @@ mod geode_social {
             details
         }
 
-        // get the vector of endorsers for a given message
+        // 🟢 get the vector of endorsers for a given message
         #[ink(message)]
         pub fn get_endorser_list_for_message(&self, message_id: Hash) -> Vec<AccountId> {
             self.message_map.get(&message_id).unwrap_or_default().endorsers
         }
 
-        // get the vector of endorsers for a given PAID message
+        // 🟢 get the vector of endorsers for a given PAID message
         #[ink(message)]
         pub fn get_endorser_list_for_paid_message(&self, message_id: Hash) -> Vec<AccountId> {
             self.paid_message_map.get(&message_id).unwrap_or_default().endorsers

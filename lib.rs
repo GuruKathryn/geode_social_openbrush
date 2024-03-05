@@ -19,7 +19,6 @@ mod geode_social {
     use ink::prelude::vec;
     use ink::prelude::string::String;
     use ink::storage::Mapping;
-    use ink::storage::StorageVec;
     use ink::env::hash::{Sha2x256, HashOutput};
 
     // PRELIMINARY STORAGE STRUCTURES >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -429,10 +428,8 @@ mod geode_social {
         reply_map: Mapping<Hash, MessageDetails>,
         paid_message_map: Mapping<Hash, PaidMessageDetails>,
         target_interests_map: Mapping<Vec<u8>, Messages>,
-        target_interests_vec: StorageVec<Vec<u8>>,
         message_reply_map: Mapping<Hash, Messages>,
         username_map: Mapping<Vec<u8>, AccountId>,
-        all_accounts_with_settings: StorageVec<AccountId>,
     }
 
 
@@ -457,10 +454,8 @@ mod geode_social {
                 reply_map: Mapping::default(),
                 paid_message_map: Mapping::default(),
                 target_interests_map: Mapping::default(),
-                target_interests_vec: StorageVec::default(),
                 message_reply_map: Mapping::default(),
                 username_map: Mapping::default(),
-                all_accounts_with_settings: StorageVec::default(),
             }
         }
 
@@ -476,6 +471,12 @@ mod geode_social {
             photo_or_youtube_link: Vec<u8>, 
             website_or_document_link: Vec<u8>, 
         ) -> Result<(), Error> {
+
+            // check that the message is not over 250 characters (500 length)
+            if new_message.len() > 500 {
+                // error - data too large
+                return Err(Error::DataTooLarge);
+            }
 
             let new_message_clone = new_message.clone();
             let new_message_clone2 = new_message.clone();
@@ -560,6 +561,13 @@ mod geode_social {
             payment_per_endorser: Balance,
             target_interests: Vec<u8>
         ) -> Result<(), Error> {
+
+            // check that the message is not over 250 characters (500 length)
+            if new_message.len() > 500 {
+                // error - data too large
+                return Err(Error::DataTooLarge);
+            }
+
             let caller = Self::env().caller();
 
             let new_message_clone = new_message.clone();
@@ -659,25 +667,15 @@ mod geode_social {
                 return Err(Error::DataTooLarge);
             }
 
-            // add this message to the messages vector for this account
+            // add this message to the messages vector for this account 🛑 keep most recent
             current_messages.messages.push(new_message_id);
             // update the account_messages_map
             self.account_paid_messages_map.insert(&caller, &current_messages);
 
-            // add the new message to the list for these target intersts
+            // add the new message to the list for these target interests
             matching_messages.messages.push(new_message_id);
             // update the mapping
             self.target_interests_map.insert(&interests_clone, &matching_messages);
-
-            // UPDATE THE TARGET INTERESTS VECTOR
-            // check to see if this target_interests already exists in the vector
-            if self.target_interests_map.contains(&interests_clone) {
-                // if it already exists, do nothing...
-            }
-            else {
-                // If it does not already exist, add it to the target_interests_vec
-                self.target_interests_vec.push(&interests_clone);
-            }
 
             // EMIT AN EVENT (to register the post to the chain)
             Self::env().emit_event(PaidMessageBroadcast {
@@ -909,7 +907,8 @@ mod geode_social {
             let caller = Self::env().caller();
             // Is this account already being followed? OR Is the following list full?
             let mut current_follows = self.account_following_map.get(&caller).unwrap_or_default();
-            if current_follows.following.contains(&follow) || current_follows.following.len() > 489 {
+            if current_follows.following.contains(&follow) || current_follows.following.len() > 489
+            || caller == follow {
                 return Err(Error::CannotFollow);
             }
             // Otherwise, update the account_following_map for this caller
@@ -987,7 +986,8 @@ mod geode_social {
             // Is this account already being blocked? OR is the blocked list full?
             let caller = Self::env().caller();
             let mut current_blocked = self.account_blocked_map.get(&caller).unwrap_or_default();
-            if current_blocked.blocked.contains(&block) || current_blocked.blocked.len() > 489 {
+            if current_blocked.blocked.contains(&block) || current_blocked.blocked.len() > 489
+            || caller == block {
                 return Err(Error::CannotBlock);
             }
             // Otherwise, update the account_blocked_map for this caller
@@ -1078,9 +1078,8 @@ mod geode_social {
             }
             else {
                 // check that the set of interest keywords are not too long
-                // maximum length is 600 which would give us 300 characters
-                let interests_length = my_interests.len();
-                if interests_length > 600 {
+                // maximum length is 180 which would give us 90 characters
+                if my_interests.len() > 180 {
                     // intrests are too long, send an error
                     return Err(Error::InterestsTooLong)
                 }
@@ -1108,15 +1107,6 @@ mod geode_social {
                     }
                     else {
                         // if the username is not taken...
-                        // if this is their first time updating settings, 
-                        // add this account to the vector of accounts with settings
-                        if self.account_settings_map.contains(&caller) {
-                            // do nothing
-                        }
-                        else {
-                            // add the caller to the vector of accounts with settings
-                            self.all_accounts_with_settings.push(&caller);
-                        }
                         // update the settings storage map
                         self.account_settings_map.insert(&caller, &settings_update);
                         // then update the username map
@@ -1151,6 +1141,25 @@ mod geode_social {
             let accountvec = self.account_following_map.get(&caller).unwrap_or_default().following;
             // set up the return data structure
             let mut message_list: Vec<MessageDetails> = Vec::new();
+
+            // start with the caller who will defacto follow themselves (posts only)
+            let my_idvec = self.account_messages_map.get(&caller).unwrap_or_default().messages;
+            // iterate over those messages to get the details for each
+            for messageidhash in my_idvec.iter() {
+                // get the details for that message
+                let details = self.message_map.get(&messageidhash).unwrap_or_default();
+                // add the details to the message_list vector
+                message_list.push(details);
+                // get the reply message IDs for that message
+                let reply_idvec = self.message_reply_map.get(&messageidhash).unwrap_or_default().messages;
+                // for each reply, get the details and add it to the return vector
+                for replyidhash in reply_idvec.iter() {
+                    // get the detials for that reply
+                    let replydetails = self.reply_map.get(&replyidhash).unwrap_or_default();
+                    // add the details to the message_list vector
+                    message_list.push(replydetails);
+                }
+            }
 
             // iterate over the vector of AccountIds the user is following...
             for account in accountvec.iter() {
@@ -1213,56 +1222,40 @@ mod geode_social {
         // given an accountId, returns the details of every paid message, sent by anyone, that matches 
         // the interests of the caller AND still has paid endorsements available AND sufficient staked balance
         #[ink(message)]
-        pub fn get_paid_feed(&self) -> MyPaidFeed {
+        pub fn get_paid_feed(&self, keyword: Vec<u8>) -> MyPaidFeed {
             // set up the return data structure
             let mut message_list: Vec<PaidMessageDetails> = Vec::new();
-            // make a vector of all paid message id hashes that match this account's interests
+            // make a vector of all paid message id hashes that match this keyword
             // start by defining the caller
             let caller = Self::env().caller();
             // Get the callers list of interests...
             let caller_interests = self.account_settings_map.get(&caller).unwrap_or_default().interests;
             let caller_interests_string = String::from_utf8(caller_interests.clone()).unwrap_or_default();
-
-            // for every interest in the target_interests_map (as represented by the target interests vector)...
-            if self.target_interests_vec.len() > 0 {
-                for i in 0..self.target_interests_vec.len() {
-                    // get the target keyword
-                    let target = self.target_interests_vec.get(i).unwrap_or_default();
-                    let target_clone = target.clone();
-                    let target_string = String::from_utf8(target).unwrap_or_default();
-                    
-                    // check to see if the caller's interests include the target
-                    if caller_interests_string.contains(&target_string) {
-                        // get the vector of message id hashes for that target
-                        let message_idvec = self.target_interests_map.get(&target_clone).unwrap_or_default().messages;
-                        // Are there messages for those keywords?
-                        if message_idvec.len() > 0 {
-                            // iterate over that vector of message hashes...
-                            for paidmessageid in message_idvec.iter() {
-                                
-                                // check to see if that message has any endorsements and balance available
-                                // start by getting the details for that message
-                                let details = self.paid_message_map.get(&paidmessageid).unwrap_or_default();
-                                if details.endorser_count < details.paid_endorser_max && details.staked_balance > 0 {
-                                    // add the details to the message_list vector
-                                    message_list.push(details);
-                                }
-                                // else, if there are no paid endorsements left, or 0 balance, do nothing
-                                // repeat for the rest of the paid message ids under that target interest
-                            }
-                        }                        
-                    }   
-                    // if the caller's interests do not match the target, do nothing
-                    // repeat for the rest of the targets in the target_interest_map
-                }
-            }
-
+            // compare them to the keyword they entered
+            let target_string = String::from_utf8(keyword.clone()).unwrap_or_default();
+            // check to see if the caller's interests include the keyword
+            if caller_interests_string.contains(&target_string) {
+                // get the vector of message id hashes for that target
+                let message_idvec = self.target_interests_map.get(&keyword).unwrap_or_default().messages;
+                // Are there messages for those keywords?
+                if message_idvec.len() > 0 {
+                    // iterate over that vector of message hashes...
+                    for paidmessageid in message_idvec.iter() {
+                        // check to see if that message has endorsements and balance available
+                        // start by getting the details for that message
+                        let details = self.paid_message_map.get(&paidmessageid).unwrap_or_default();
+                        if details.endorser_count < details.paid_endorser_max && details.staked_balance > 0 {
+                            // add the details to the message_list vector
+                            message_list.push(details);
+                        }
+                        // else, if there are no paid endorsements left, or 0 balance, do nothing
+                        // repeat for the rest of the paid message ids under that target interest
+                    }
+                }                        
+            }   
+            // if the caller's interests do not match the target, do nothing
             // At this point, you should have a complete list of messages and all their details
             // that match the caller's interests AND have paid endorsements & balance available.
-            // It is possible that the caller has already endorsed it, but that will be caught
-            // in the elevate paid message function should they try to endorse it a second time. 
-            // Meanwhile, the advertiser gets a bonus by putting this message in front of this
-            // user repeatedly for free until the total endorsements have run out. 
 
             // package the results
             let my_paid_feed = MyPaidFeed {
@@ -1322,7 +1315,7 @@ mod geode_social {
                     // add the details to the message_list vector
                     message_list.push(replydetails);
                 }
-                // loop back and do the same for each top level message from this account
+                // loop back and do the same for each endorsed message from this account
             }
             
             // package the results
@@ -1339,7 +1332,7 @@ mod geode_social {
         }
 
 
-        // 🟢 12 SEND REPLY MESSAGE PUBLIC (REPLIES ONLY) 
+        // 🟢 12 SEND REPLY MESSAGE (REPLIES ONLY) 
         // sends a broadcast public message as a reply to a top level message on the chain
         #[ink(message)]
         pub fn send_reply_public (&mut self, 
@@ -1434,34 +1427,11 @@ mod geode_social {
         }
 
 
-        // 🟢 13 GET ACCOUNT INTERESTS KEYWORDS FOR ANALYSIS 
-        // returns all the data avialable about interest keywords so that the front end can 
-        // offer analysis of the most popular interests, frequency per word or phrase, and
-        // a search option to see how many accounts have a given interest
-        #[ink(message)]
-        pub fn get_interests_data(&self) -> Vec<Vec<u8>> {
-            // set up the results vector
-            let mut interests_data: Vec<Vec<u8>> = Vec::new();
-            // for each account with settings, add their interests to the results vector
-            if self.all_accounts_with_settings.len() > 0 {
-                for i in 0..self.all_accounts_with_settings.len() {
-                    let acct = self.all_accounts_with_settings.get(i).unwrap();
-                    // get their interests
-                    let interests = self.account_settings_map.get(&acct).unwrap_or_default().interests;
-                    // add their interests to the results vector
-                    interests_data.push(interests);
-                }
-            }
-            // return the results
-            interests_data
-        }
-
-
         // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
         // >>>>>>>>>>>>>>>>>>>>>>>>>> SECONDARY GET MESSAGES <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
         // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-        // 14 VERIFY THAT AN ACCOUNT HAS UPDATED THEIR SETTINGS AT LEAST ONCE 
+        // 🟢 13 VERIFY THAT AN ACCOUNT HAS UPDATED THEIR SETTINGS AT LEAST ONCE 
         #[ink(message)]
         pub fn verify_account(&self, verify: AccountId) -> u8 {
             let mut result: u8 = 0;
@@ -1471,8 +1441,7 @@ mod geode_social {
             result
         }
 
-        // 🟢 GET ACCOUNT PAID MESSAGES
-        // 15 GET ACCOUNT PAID MESSAGES
+        // 🟢 14 GET ACCOUNT PAID MESSAGES
         // given an accountId, returns the details of every paid message sent by that account
         #[ink(message)]
         pub fn get_account_paid_messages(&self, user: AccountId) -> Vec<PaidMessageDetails> {
@@ -1488,13 +1457,13 @@ mod geode_social {
             message_list
         }
 
-        // 16 get the vector of accounts followed by a given AccountId
+        // 🟢 15 get the vector of accounts followed by a given AccountId
         #[ink(message)]
         pub fn get_account_following(&self, user: AccountId) -> Vec<AccountId> {
             self.account_following_map.get(&user).unwrap_or_default().following
         }
 
-        // 17 Get the details on a paid message post, given the message_id hash.  
+        // 🟢 16 Get the details on a paid message post, given the message_id hash.  
         #[ink(message)]
         pub fn get_details_for_paid_message(&self, message_id: Hash
         ) -> PaidMessageDetails {
@@ -1505,7 +1474,7 @@ mod geode_social {
             details
         }
 
-        // 18 Get the details on a public message post, given the message_id hash.  
+        // 🟢 17 Get the details on a public message post, given the message_id hash.  
         #[ink(message)]
         pub fn get_details_for_message(&self, message_id: Hash
         ) -> MessageDetails {

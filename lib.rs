@@ -76,34 +76,11 @@ mod geode_social {
         }
     }
 
-    #[derive(Clone, Debug, PartialEq, Eq)]
+    #[derive(Clone, Debug, PartialEq, Eq, Default)]
     #[ink::scale_derive(Encode, Decode, TypeInfo)]
     #[cfg_attr(feature = "std",derive(ink::storage::traits::StorageLayout,))]
     pub struct Messages {
         messages: Vec<Hash>,
-    }
-
-    impl Default for Messages {
-        fn default() -> Messages {
-            Messages {
-              messages: <Vec<Hash>>::default(),
-            }
-        }
-    }
-
-    #[derive(Clone, Debug, PartialEq, Eq)]
-    #[ink::scale_derive(Encode, Decode, TypeInfo)]
-    #[cfg_attr(feature = "std",derive(ink::storage::traits::StorageLayout,))]
-    pub struct Elevated {
-        elevated: Vec<Hash>,
-    }
-
-    impl Default for Elevated {
-        fn default() -> Elevated {
-            Elevated {
-              elevated: <Vec<Hash>>::default(),
-            }
-        }
     }
 
     #[derive(Clone, Debug, PartialEq, Eq)]
@@ -162,7 +139,6 @@ mod geode_social {
         endorser_count: u128,
         reply_count: u128,
         timestamp: u64,
-        endorsers: Vec<AccountId>
     }
 
     impl Default for MessageDetails {
@@ -178,7 +154,6 @@ mod geode_social {
                 endorser_count: 0,
                 reply_count: 0,
                 timestamp: u64::default(),
-                endorsers: <Vec<AccountId>>::default(),
             }
         }
     }
@@ -249,19 +224,31 @@ mod geode_social {
     #[derive(Clone, Debug, PartialEq, Eq)]
     #[ink::scale_derive(Encode, Decode, TypeInfo)]
     #[cfg_attr(feature = "std",derive(ink::storage::traits::StorageLayout,))]
-    pub struct KeywordSearchResults {
-        search: Vec<u8>,
-        message_list: Vec<MessageDetails>,
+    pub struct RewardSettings {
+        reward_on: u8,
+        reward_root_set: u8,
+        reward_root: AccountId,
+        reward_interval: u128,
+        reward_amount: Balance,
+        reward_balance: Balance,
+        reward_payouts: Balance,
+        claim_counter: u128,
     }
 
-    impl Default for KeywordSearchResults {
-        fn default() -> KeywordSearchResults {
-            KeywordSearchResults {
-                search: <Vec<u8>>::default(),
-                message_list: <Vec<MessageDetails>>::default(),
+    impl Default for RewardSettings {
+        fn default() -> RewardSettings {
+            RewardSettings {
+                reward_on: u8::default(),
+                reward_root_set: u8::default(),
+                reward_root: AccountId::from([0x0; 32]),
+                reward_interval: u128::default(),
+                reward_amount: Balance::default(),
+                reward_balance: Balance::default(),
+                reward_payouts: Balance::default(),
+                claim_counter: u128::default(),
             }
         }
-    } 
+    }
 
 
     // EVENT DEFINITIONS >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -367,6 +354,14 @@ mod geode_social {
         interests: Vec<u8>,
     }
 
+    #[ink(event)]
+    // Writes the new reward to the blockchain 
+    pub struct AccountRewardedSocial {
+        #[ink(topic)]
+        claimant: AccountId,
+        reward: Balance,
+    }
+
 
     // ERROR DEFINITIONS >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
@@ -410,6 +405,10 @@ mod geode_social {
         BidTooLow,
         // replies are full, cannot reply to this post
         RepliesFull,
+        // Caller doee not have permission
+        PermissionDenied,
+        // reward account payout failed
+        PayoutFailed,
     }
 
 
@@ -423,13 +422,21 @@ mod geode_social {
         account_blocked_map: Mapping<AccountId, Blocked>,
         account_messages_map: Mapping<AccountId, Messages>,
         account_paid_messages_map: Mapping<AccountId, Messages>,
-        account_elevated_map: Mapping<AccountId, Elevated>,
+        account_elevated_map: Mapping<AccountId, Hash>,
         message_map: Mapping<Hash, MessageDetails>,
         reply_map: Mapping<Hash, MessageDetails>,
         paid_message_map: Mapping<Hash, PaidMessageDetails>,
         target_interests_map: Mapping<Vec<u8>, Messages>,
         message_reply_map: Mapping<Hash, Messages>,
         username_map: Mapping<Vec<u8>, AccountId>,
+        reward_root_set: u8,
+        reward_root: AccountId,
+        reward_interval: u128,
+        reward_amount: Balance,
+        reward_on: u8,
+        reward_balance: Balance,
+        reward_payouts: Balance,
+        claim_counter: u128,
     }
 
 
@@ -456,6 +463,14 @@ mod geode_social {
                 target_interests_map: Mapping::default(),
                 message_reply_map: Mapping::default(),
                 username_map: Mapping::default(),
+                reward_root_set: 0,
+                reward_root: AccountId::from([0x0; 32]),
+                reward_interval: 1000000,
+                reward_amount: 0,
+                reward_on: 0,
+                reward_balance: 0,
+                reward_payouts: 0,
+                claim_counter: 0,
             }
         }
 
@@ -472,8 +487,10 @@ mod geode_social {
             website_or_document_link: Vec<u8>, 
         ) -> Result<(), Error> {
 
-            // check that the message is not over 250 characters (500 length)
-            if new_message.len() > 500 {
+            // check data limits on all inputs:
+            // message 300 characters (600 length), links 300 characters (600 length)
+            if new_message.len() > 600 || photo_or_youtube_link.len() > 600
+            || website_or_document_link.len() > 600 {
                 // error - data too large
                 return Err(Error::DataTooLarge);
             }
@@ -507,7 +524,6 @@ mod geode_social {
                 endorser_count: 0,
                 reply_count: 0,
                 timestamp: self.env().block_timestamp(),
-                endorsers: Vec::default(),
             };
 
             // UPDATE MESSAGE MAP AND VECTOR
@@ -520,14 +536,21 @@ mod geode_social {
             // get the messages vector for this account
             let caller = Self::env().caller();
             let mut current_messages = self.account_messages_map.get(&caller).unwrap_or_default();
-            // Keep only the 490 most recent message hashes
-            if current_messages.messages.len() > 489 {
+            // Keep only the 3 most recent message hashes
+            if current_messages.messages.len() > 2 {
                 // get the id for the oldest message
                 let oldest = current_messages.messages[0];
                 // remove the oldest from the message_map
                 self.message_map.remove(oldest);
                 // remove the oldest message from account_messages_map
                 current_messages.messages.remove(0);
+                // remove all the replies to the oldest message from the reply_map 
+                let replies = self.message_reply_map.get(oldest).unwrap_or_default();
+                for id in replies.messages.iter() {
+                    self.reply_map.remove(id);
+                }
+                // remove the oldest message from the message_reply_map
+                self.message_reply_map.remove(oldest);
             }
             // add the new message to the end of the storage
             current_messages.messages.push(new_message_id);
@@ -544,6 +567,29 @@ mod geode_social {
                 reply_to: Hash::default(),
                 timestamp: self.env().block_timestamp()
             });
+
+            // REWARD PROGRAM ACTIONS... update the claim_counter 
+            self.claim_counter = self.claim_counter.wrapping_add(1);
+            // IF conditions are met THEN payout a reward
+            let min = self.reward_amount.saturating_add(10);
+            let payout: Balance = self.reward_amount;
+            if self.reward_on == 1 && self.reward_balance > payout && self.env().balance() > min
+            && self.claim_counter.checked_rem_euclid(self.reward_interval) == Some(0) {
+                // payout
+                if self.env().transfer(caller, payout).is_err() {
+                    return Err(Error::PayoutFailed);
+                }
+                // update reward_balance
+                self.reward_balance = self.reward_balance.saturating_sub(payout);
+                // update reward_payouts
+                self.reward_payouts = self.reward_payouts.saturating_add(payout);
+                // emit an event to register the reward to the chain
+                Self::env().emit_event(AccountRewardedSocial {
+                    claimant: caller,
+                    reward: payout
+                });
+            }
+            // END REWARD PROGRAM ACTIONS
             
             Ok(())
         }
@@ -562,8 +608,11 @@ mod geode_social {
             target_interests: Vec<u8>
         ) -> Result<(), Error> {
 
-            // check that the message is not over 250 characters (500 length)
-            if new_message.len() > 500 {
+            // check that the inputs are not too long
+            // message 300 characters (600 length), links: 300 characters (600 length)
+            // target interests 50 characters (100 length)
+            if photo_or_youtube_link.len() > 600 || target_interests.len() > 100 
+            || target_interests.len() > 600 || website_or_document_link.len() > 600 {
                 // error - data too large
                 return Err(Error::DataTooLarge);
             }
@@ -616,7 +665,7 @@ mod geode_social {
             // get the messages vector for this account
             let mut current_messages = self.account_paid_messages_map.get(&caller).unwrap_or_default();
             // if the paid messages vector is full, remove the oldest message
-            if current_messages.messages.len() > 489 {
+            if current_messages.messages.len() > 54 {
                 // get the id hash and interests for the oldest message
                 let oldest = current_messages.messages[0];
                 let old_interests = self.paid_message_map.get(oldest).unwrap_or_default().target_interests;
@@ -634,8 +683,8 @@ mod geode_social {
             // IF THERE ARE TOO MANY MESSAGES FOR THIS INTERESTS TARGET, THROW OUT THE LOW BIDDER
             // get the current set of messages that match this target
             let mut matching_messages = self.target_interests_map.get(&interests_clone).unwrap_or_default();
-            // if there are > 489 messages for this target, remove the lowest bidder
-            if matching_messages.messages.len() > 489 {
+            // if there are > 55 messages for this target, remove the lowest bidder
+            if matching_messages.messages.len() > 54 {
                 // determine if this message bids high enough...
                 // check the other bids and find the lowest
                 let first_hash = matching_messages.messages[0];
@@ -667,7 +716,7 @@ mod geode_social {
                 return Err(Error::DataTooLarge);
             }
 
-            // add this message to the messages vector for this account 🛑 keep most recent
+            // add this message to the messages vector for this account
             current_messages.messages.push(new_message_id);
             // update the account_messages_map
             self.account_paid_messages_map.insert(&caller, &current_messages);
@@ -691,6 +740,29 @@ mod geode_social {
                 total_staked: staked
             });
 
+            // REWARD PROGRAM ACTIONS... update the claim_counter 
+            self.claim_counter = self.claim_counter.wrapping_add(1);
+            // IF conditions are met THEN payout a reward
+            let min = self.reward_amount.saturating_add(10);
+            let payout: Balance = self.reward_amount;
+            if self.reward_on == 1 && self.reward_balance > payout && self.env().balance() > min
+            && self.claim_counter.checked_rem_euclid(self.reward_interval) == Some(0) {
+                // payout
+                if self.env().transfer(caller, payout).is_err() {
+                    return Err(Error::PayoutFailed);
+                }
+                // update reward_balance
+                self.reward_balance = self.reward_balance.saturating_sub(payout);
+                // update reward_payouts
+                self.reward_payouts = self.reward_payouts.saturating_add(payout);
+                // emit an event to register the reward to the chain
+                Self::env().emit_event(AccountRewardedSocial {
+                    claimant: caller,
+                    reward: payout
+                });
+            }
+            // END REWARD PROGRAM ACTIONS
+
             Ok(())
 
         }
@@ -707,22 +779,14 @@ mod geode_social {
                 // Get the contract caller's Account ID
                 let caller = Self::env().caller();
                 // Get the details for this message_id from the message_map
-                let mut current_details = self.message_map.get(&this_message_id).unwrap_or_default();
+                let current_details = self.message_map.get(&this_message_id).unwrap_or_default();
                
-                // Is the caller already in the endorsers list for this message OR is it your own message?... 
-                if current_details.endorsers.contains(&caller) || current_details.from_acct == caller {
+                // Is it your own message?... 
+                if current_details.from_acct == caller {
                     // If TRUE, return an Error... DuplicateEndorsement
                     return Err(Error::DuplicateEndorsement)
                 } 
                 else {
-                    // the caller is NOT among the 100 most recent endorsers...
-                    // If there are 100 endorsers, kick out the oldest endorsement
-                    if current_details.endorsers.len() > 99 {
-                        current_details.endorsers.remove(0);
-                    }
-                    // Update the MessageDetails for this message in the message_map
-                    // Add this endorser to the vector of endorsing accounts
-                    current_details.endorsers.push(caller);
                     // update the endorser count
                     let new_endorser_count = current_details.endorser_count.saturating_add(1);
 
@@ -738,7 +802,6 @@ mod geode_social {
                         endorser_count: new_endorser_count,
                         reply_count: current_details.reply_count,
                         timestamp: current_details.timestamp,
-                        endorsers: current_details.endorsers
                     };
 
                     // Update the message_map
@@ -747,14 +810,7 @@ mod geode_social {
                     }        
 
                     // Add this message to the account_elevated_map for this caller
-                    let mut current_elevated = self.account_elevated_map.get(&caller).unwrap_or_default();
-                    // if there are > 100 posts already elevated, kick out the oldest post hash
-                    if current_elevated.elevated.len() > 99 {
-                        current_elevated.elevated.remove(0);
-                    }
-                    // add the new post hash to the vector
-                    current_elevated.elevated.push(this_message_id);
-                    self.account_elevated_map.insert(&caller, &current_elevated);
+                    self.account_elevated_map.insert(&caller, &this_message_id);
 
                     // Emit an event to register the endorsement to the chain...
                     Self::env().emit_event(MessageElevated {
@@ -905,14 +961,18 @@ mod geode_social {
         pub fn follow_account (&mut self, follow: AccountId
         ) -> Result<(), Error> {
             let caller = Self::env().caller();
-            // Is this account already being followed? OR Is the following list full?
+            // Is this account already being followed? or is the caller trying to follow themselves?
             let mut current_follows = self.account_following_map.get(&caller).unwrap_or_default();
-            if current_follows.following.contains(&follow) || current_follows.following.len() > 489
-            || caller == follow {
+            if current_follows.following.contains(&follow) || caller == follow {
                 return Err(Error::CannotFollow);
             }
             // Otherwise, update the account_following_map for this caller
             else {
+                // if there are already > 98 accounts in the follow list, keep the most recent 99
+                if current_follows.following.len() > 98 {
+                    // kick out the oldest follow
+                    current_follows.following.remove(0);
+                }
                 // add the new follow to the the vector of accounts caller is following
                 current_follows.following.push(follow);
                 // Update (overwrite) the account_following_map entry in the storage
@@ -986,12 +1046,15 @@ mod geode_social {
             // Is this account already being blocked? OR is the blocked list full?
             let caller = Self::env().caller();
             let mut current_blocked = self.account_blocked_map.get(&caller).unwrap_or_default();
-            if current_blocked.blocked.contains(&block) || current_blocked.blocked.len() > 489
-            || caller == block {
+            if current_blocked.blocked.contains(&block) || caller == block {
                 return Err(Error::CannotBlock);
             }
             // Otherwise, update the account_blocked_map for this caller
             else {
+                // if the blocked vector is full, kick out the oldest
+                if current_blocked.blocked.len() > 489 {
+                    current_blocked.blocked.remove(0);
+                }
                 // add the new block to the the vector of accounts caller is blocking
                 current_blocked.blocked.push(block);
                 // Update (overwrite) the account_blocked_map entry in the storage
@@ -1057,11 +1120,13 @@ mod geode_social {
 
             let username_clone1 = my_username.clone();
             let username_clone2 = my_username.clone();
-            // let interests_clone = my_interests.clone();
 
             // get the current settings for this caller and prepare the update
             let caller = Self::env().caller();
             let current_settings = self.account_settings_map.get(&caller).unwrap_or_default();
+            let oldname = current_settings.username;
+
+            // prepare the update
             let settings_update: Settings = Settings {
                 username: my_username.clone(),
                 interests: my_interests.clone(),
@@ -1077,11 +1142,11 @@ mod geode_social {
                 return Err(Error::CannotUpdateInterestsWithin24Hours)
             }
             else {
-                // check that the set of interest keywords are not too long
+                // check that the set of interest keywords and username are not too long
                 // maximum length is 180 which would give us 90 characters
-                if my_interests.len() > 180 {
+                if my_interests.len() > 180 || my_username.len() > 180 {
                     // intrests are too long, send an error
-                    return Err(Error::InterestsTooLong)
+                    return Err(Error::DataTooLarge)
                 }
                 else {
                     // check that the username is not taken by someone else...
@@ -1089,8 +1154,9 @@ mod geode_social {
                     if self.username_map.contains(username_clone1) {
                         // get the account that owns that username
                         let current_owner = self.username_map.get(&username_clone2).unwrap();
-                        // if the caller owns that username, update the storage maps
+                        // if the caller owns that username, they are not changing it, update the storage maps
                         if current_owner == caller {
+                            // update their settings
                             self.account_settings_map.insert(&caller, &settings_update); 
 
                             // Emit an event to register the update to the chain
@@ -1106,11 +1172,16 @@ mod geode_social {
                         }
                     }
                     else {
-                        // if the username is not taken...
+                        // if the username is not taken... this user might be changing usernames
                         // update the settings storage map
                         self.account_settings_map.insert(&caller, &settings_update);
                         // then update the username map
                         self.username_map.insert(&username_clone2, &caller);
+                        // release the old username if the oldname it exists for this caller
+                        let oldowner = self.username_map.get(&oldname.clone()).unwrap();
+                        if self.username_map.contains(oldname.clone()) && oldowner == caller {
+                            self.username_map.remove(oldname);
+                        }
 
                         // Emit an event to register the update to the chain
                         Self::env().emit_event(SettingsUpdated {
@@ -1130,9 +1201,9 @@ mod geode_social {
         // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
  
 
-        // 🟢 9 GET PUBLIC FEED 
-        // given an accountId, retuns the details of all public posts sent by all accounts they follow
-        // any messages elevated/endorsed by those accounts and all replies to those posts by anyone
+        // 🟢 9 GET PUBLIC FEED
+        // given an accountId, retuns the details of thhe 3 most recent public posts sent by 
+        // each account they follow, and 1 most recent endorsed post, replies on request
         #[ink(message)]
         pub fn get_public_feed(&self) -> MyFeed {
             // identify the caller
@@ -1142,7 +1213,7 @@ mod geode_social {
             // set up the return data structure
             let mut message_list: Vec<MessageDetails> = Vec::new();
 
-            // start with the caller who will defacto follow themselves (posts only)
+            // start with the caller, who will defacto follow themselves (posts only)
             let my_idvec = self.account_messages_map.get(&caller).unwrap_or_default().messages;
             // iterate over those messages to get the details for each
             for messageidhash in my_idvec.iter() {
@@ -1150,15 +1221,7 @@ mod geode_social {
                 let details = self.message_map.get(&messageidhash).unwrap_or_default();
                 // add the details to the message_list vector
                 message_list.push(details);
-                // get the reply message IDs for that message
-                let reply_idvec = self.message_reply_map.get(&messageidhash).unwrap_or_default().messages;
-                // for each reply, get the details and add it to the return vector
-                for replyidhash in reply_idvec.iter() {
-                    // get the detials for that reply
-                    let replydetails = self.reply_map.get(&replyidhash).unwrap_or_default();
-                    // add the details to the message_list vector
-                    message_list.push(replydetails);
-                }
+                // replies on request by a different message function
             }
 
             // iterate over the vector of AccountIds the user is following...
@@ -1171,40 +1234,18 @@ mod geode_social {
                     let details = self.message_map.get(&messageidhash).unwrap_or_default();
                     // add the details to the message_list vector
                     message_list.push(details);
-                    // get the reply message IDs for that message
-                    let reply_idvec = self.message_reply_map.get(&messageidhash).unwrap_or_default().messages;
-                    // for each reply, get the details and add it to the return vector
-                    for replyidhash in reply_idvec.iter() {
-                        // get the detials for that reply
-                        let replydetails = self.reply_map.get(&replyidhash).unwrap_or_default();
-                        // add the details to the message_list vector
-                        message_list.push(replydetails);
-                    }
-                    // loop back and do the same for each top level message from this account
+                    // replies on request by a different message function
                 }
-                // then get the list of messages elevated by that account and get the details for those
-                let elevated_idvec = self.account_elevated_map.get(account).unwrap_or_default().elevated;
-                for messageidhash in elevated_idvec.iter() {
-                    // get the details for that message
-                    let details = self.message_map.get(&messageidhash).unwrap_or_default();
-                    // add the details to the message_list vector
-                    message_list.push(details);
-                    // get the reply message IDs for that message
-                    let reply_idvec = self.message_reply_map.get(&messageidhash).unwrap_or_default().messages;
-                    // for each reply, get the details and add the details to the return vector
-                    for replyidhash in reply_idvec.iter() {
-                        // get the detials for that reply
-                        let replydetails = self.reply_map.get(&replyidhash).unwrap_or_default();
-                        // add the details to the message_list vector
-                        message_list.push(replydetails);
-                    }
-                    // loop back and do the same for each message this account elevated
-                }
-                // loop back to do the same for the other accounts
+                // then get the most recently elevated message by that account and get the details
+                let elevated_id = self.account_elevated_map.get(account).unwrap_or_default();
+                // get the details for that message
+                let details = self.message_map.get(&elevated_id).unwrap_or_default();
+                // add the details to the message_list vector
+                message_list.push(details);
             }
-            // At this point you should have all the messages sent and all the messages elevated by
-            // every account you follow, and all the replies to those messages by anyone. It will be 
-            // up to the front end to limit the display and to order them by timestamp, etc.
+            // At this point you should have 3 messages sent and 1 message elevated by
+            // each account you follow. It will be up to the front end to limit the display
+            // and to order them by timestamp, etc. Future events-based feeds can include more.
 
             // package the results
             let my_feed = MyFeed {
@@ -1271,7 +1312,7 @@ mod geode_social {
 
 
         // 🟢 GET THE FULL SOCIAL APP PROFILE FOR ANY GIVEN ACCOUNT 
-        // Followers, Following, all messages sent and elevated/endorsed and replies
+        // Followers, Following, all messages sent and replies and elevated/endorsed 
         #[ink(message)]
         pub fn get_account_profile(&self, user: AccountId) -> SocialProfile {
             // set up the return data structures
@@ -1300,23 +1341,11 @@ mod geode_social {
             }
             
             // get the vector of endorsed messasge_ids
-            let elevated_idvec = self.account_elevated_map.get(&user).unwrap_or_default().elevated;
-            for messageidhash in elevated_idvec.iter() {
-                // get the details for that message
-                let details = self.message_map.get(&messageidhash).unwrap_or_default();
-                // add the details to the message_list vector
-                message_list.push(details);
-                // get the reply message IDs for that message
-                let reply_idvec = self.message_reply_map.get(&messageidhash).unwrap_or_default().messages;
-                // for each reply, get the details and add it to the return vector
-                for replyidhash in reply_idvec.iter() {
-                    // get the detials for that reply
-                    let replydetails = self.reply_map.get(&replyidhash).unwrap_or_default();
-                    // add the details to the message_list vector
-                    message_list.push(replydetails);
-                }
-                // loop back and do the same for each endorsed message from this account
-            }
+            let elevated_id = self.account_elevated_map.get(&user).unwrap_or_default();
+            // get the details for that message
+            let details = self.message_map.get(&elevated_id).unwrap_or_default();
+            // add the details to the message_list vector
+            message_list.push(details);
             
             // package the results
             let social_profile = SocialProfile {
@@ -1332,7 +1361,7 @@ mod geode_social {
         }
 
 
-        // 🟢 12 SEND REPLY MESSAGE (REPLIES ONLY) 
+        // 🟢 12 SEND REPLY MESSAGE (REPLIES ONLY)
         // sends a broadcast public message as a reply to a top level message on the chain
         #[ink(message)]
         pub fn send_reply_public (&mut self, 
@@ -1342,80 +1371,87 @@ mod geode_social {
             replying_to: Hash
         ) -> Result<(), Error> {
 
+            // check data limits on all inputs:
+            // message 300 characters (600 length), links 300 characters (600 length)
+            if new_message.len() > 600 || photo_or_youtube_link.len() > 600
+            || website_or_document_link.len() > 600 {
+                // error - data too large
+                return Err(Error::DataTooLarge);
+            }
+
             // Does the message exist in the top level messages? if so proceed
             if self.message_map.contains(&replying_to) {
                 // get the vector of reply IDs for the original message
                 let mut current_replies = self.message_reply_map.get(&replying_to).unwrap_or_default();
-                // WE KEEP ONLY THE FIRST 400 REPLIES TO ANY ONE MESSAGE
-                if current_replies.messages.len() > 399 {
-                    // error - replies are full and you cannot reply to this mesage
-                    return Err(Error::RepliesFull);
+                
+                let new_message_clone = new_message.clone();
+                let new_message_clone2 = new_message.clone();
+                let link_clone = photo_or_youtube_link.clone();
+                let link2_clone = website_or_document_link.clone();
+
+                // set up the data that will go into the new_message_id
+                let from = Self::env().caller();
+                let new_timestamp = self.env().block_timestamp();
+
+                // create the new_message_id by hashing the above data
+                let encodable = (from, new_message, new_timestamp); // Implements `scale::Encode`
+                let mut new_message_id_u8 = <Sha2x256 as HashOutput>::Type::default(); // 256-bit buffer
+                ink::env::hash_encoded::<Sha2x256, _>(&encodable, &mut new_message_id_u8);
+                let new_message_id: Hash = Hash::from(new_message_id_u8);
+
+                // SET UP THE MESSAGE DETAILS FOR THE NEW REPLY
+                let caller = Self::env().caller();
+                let fromusername = self.account_settings_map.get(caller).unwrap_or_default().username;
+                let new_details = MessageDetails {
+                    message_id: new_message_id,
+                    reply_to: replying_to,
+                    from_acct: Self::env().caller(),
+                    username: fromusername,
+                    message: new_message_clone,
+                    link: photo_or_youtube_link,
+                    link2: website_or_document_link,
+                    endorser_count: 0,
+                    reply_count: 0,
+                    timestamp: self.env().block_timestamp(),
+                };
+                
+                // WE KEEP ONLY THE most recent 100 REPLIES TO ANY ONE MESSAGE
+                // if there are already 100 replies stored, kick out the oldest
+                if current_replies.messages.len() > 99 {
+                    let oldest = current_replies.messages[0];
+                    current_replies.messages.remove(0);
+                    // remove the odlest from reply_map
+                    self.reply_map.remove(oldest);
                 }
-                else {
-                    
-                    let new_message_clone = new_message.clone();
-                    let new_message_clone2 = new_message.clone();
-                    let link_clone = photo_or_youtube_link.clone();
-                    let link2_clone = website_or_document_link.clone();
-
-                    // set up the data that will go into the new_message_id
-                    let from = Self::env().caller();
-                    let new_timestamp = self.env().block_timestamp();
-
-                    // create the new_message_id by hashing the above data
-                    let encodable = (from, new_message, new_timestamp); // Implements `scale::Encode`
-                    let mut new_message_id_u8 = <Sha2x256 as HashOutput>::Type::default(); // 256-bit buffer
-                    ink::env::hash_encoded::<Sha2x256, _>(&encodable, &mut new_message_id_u8);
-                    let new_message_id: Hash = Hash::from(new_message_id_u8);
-
-                    // SET UP THE MESSAGE DETAILS FOR THE NEW REPLY
-                    let caller = Self::env().caller();
-                    let fromusername = self.account_settings_map.get(caller).unwrap_or_default().username;
-                    let new_details = MessageDetails {
-                        message_id: new_message_id,
-                        reply_to: replying_to,
-                        from_acct: Self::env().caller(),
-                        username: fromusername,
-                        message: new_message_clone,
-                        link: photo_or_youtube_link,
-                        link2: website_or_document_link,
-                        endorser_count: 0,
-                        reply_count: 0,
-                        timestamp: self.env().block_timestamp(),
-                        endorsers: Vec::default(),
-                    };
-                    
-                    // UPDATE MESSAGE_REPLY_MAP FOR ORIGINAL MESSAGE WITH THIS REPLY HASH ID
-                    current_replies.messages.push(new_message_id);
-                    // update the message_reply_map with this message hash id
-                    self.message_reply_map.insert(&replying_to, &current_replies);
-                    
-                    // UPDATE MESSAGE_MAP FOR THE ORIGINAL MESSAGE
-                    let mut original_message_details = self.message_map.get(&replying_to).unwrap_or_default();
-                    // increment the number of replies to the original message
-                    original_message_details.reply_count = original_message_details.reply_count.saturating_add(1);
-                    // update the message_map with the updated details for the top level message 
-                    if self.message_map.try_insert(&replying_to, &original_message_details).is_err() {
-                        return Err(Error::DataTooLarge);
-                    }
-
-                    // UPDATE THE REPLY_MAP WITH THIS REPLY'S DETAILS
-                    if self.reply_map.try_insert(&new_message_id, &new_details).is_err() {
-                        return Err(Error::DataTooLarge);
-                    }
-
-                    // EMIT EVENT to register the post to the chain
-                    Self::env().emit_event(MessageBroadcast {
-                        from: Self::env().caller(),
-                        message: new_message_clone2,
-                        message_id: new_message_id,
-                        link: link_clone,
-                        link2: link2_clone,
-                        reply_to: replying_to,
-                        timestamp: self.env().block_timestamp()
-                    });
-
+                // UPDATE MESSAGE_REPLY_MAP FOR ORIGINAL MESSAGE WITH THIS REPLY HASH ID
+                current_replies.messages.push(new_message_id);
+                // update the message_reply_map with this message hash id
+                self.message_reply_map.insert(&replying_to, &current_replies);
+                
+                // UPDATE MESSAGE_MAP FOR THE ORIGINAL MESSAGE
+                let mut original_message_details = self.message_map.get(&replying_to).unwrap_or_default();
+                // increment the number of replies to the original message
+                original_message_details.reply_count = original_message_details.reply_count.saturating_add(1);
+                // update the message_map with the updated details for the top level message 
+                if self.message_map.try_insert(&replying_to, &original_message_details).is_err() {
+                    return Err(Error::DataTooLarge);
                 }
+
+                // UPDATE THE REPLY_MAP WITH THIS REPLY'S DETAILS
+                if self.reply_map.try_insert(&new_message_id, &new_details).is_err() {
+                    return Err(Error::DataTooLarge);
+                }
+
+                // EMIT EVENT to register the post to the chain
+                Self::env().emit_event(MessageBroadcast {
+                    from: Self::env().caller(),
+                    message: new_message_clone2,
+                    message_id: new_message_id,
+                    link: link_clone,
+                    link2: link2_clone,
+                    reply_to: replying_to,
+                    timestamp: self.env().block_timestamp()
+                });
 
             }
             else {
@@ -1442,7 +1478,7 @@ mod geode_social {
         }
 
         // 🟢 14 GET ACCOUNT PAID MESSAGES
-        // given an accountId, returns the details of every paid message sent by that account
+        // given an accountId, returns the details of stored paid messages sent by that account
         #[ink(message)]
         pub fn get_account_paid_messages(&self, user: AccountId) -> Vec<PaidMessageDetails> {
             let message_idvec = self.account_paid_messages_map.get(&user).unwrap_or_default().messages;
@@ -1457,13 +1493,13 @@ mod geode_social {
             message_list
         }
 
-        // 🟢 15 get the vector of accounts followed by a given AccountId
+        // 🟢 15 get the stored vector of accounts followed by a given AccountId
         #[ink(message)]
         pub fn get_account_following(&self, user: AccountId) -> Vec<AccountId> {
             self.account_following_map.get(&user).unwrap_or_default().following
         }
 
-        // 🟢 16 Get the details on a paid message post, given the message_id hash.  
+        // 🟢 16 Get the stored details on a paid message post, given the message_id hash.  
         #[ink(message)]
         pub fn get_details_for_paid_message(&self, message_id: Hash
         ) -> PaidMessageDetails {
@@ -1474,7 +1510,7 @@ mod geode_social {
             details
         }
 
-        // 🟢 17 Get the details on a public message post, given the message_id hash.  
+        // 🟢 17 Get the stored details on a public message post, given the message_id hash.  
         #[ink(message)]
         pub fn get_details_for_message(&self, message_id: Hash
         ) -> MessageDetails {
@@ -1483,6 +1519,139 @@ mod geode_social {
             let details = self.message_map.get(&message_id).unwrap_or_default();
             // return the results
             details
+        }
+
+        // 🟢 18 Get all the replies to a single message_id hash.
+        #[ink(message)]
+        pub fn get_replies_for_message(&self, message_id: Hash
+        ) -> Vec<MessageDetails> {
+            // set up the results vector
+            let mut results: Vec<MessageDetails> = Vec::new();
+            // get the replies for this message
+            let replies = self.message_reply_map.get(&message_id).unwrap_or_default();
+            // get the details
+            for id in replies.messages.iter() {
+                let details = self.reply_map.get(id).unwrap_or_default();
+                results.push(details);
+            }
+            // return the results
+            results
+        }
+
+
+        // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+        // >>>>>>>>>>>>>>>>>> REWARD PROGRAM MESSAGES >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+        // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+
+        // 🟢 19 Rewards - Set Or Update Reward Root Account [RESTRICTED: ROOT]
+        #[ink(message)]
+        pub fn set_reward_root(&mut self, newroot: AccountId) -> Result<(), Error> {
+            let caller = Self::env().caller();
+            // if the root is already set, send an error
+            if self.reward_root_set != 1 || self.reward_root == caller {
+                // proceed - set the roots and update the storage
+                self.reward_root = newroot;
+                self.reward_root_set = 1;
+            }
+            else {
+                // error PermissionDenied
+                return Err(Error::PermissionDenied)
+            }
+
+            Ok(())
+        }
+
+
+        // 🟢 20 Rewards - Set/Update Reward Interval and Amount [RESTRICTED: ROOT]
+        // Reward coin will be given to the account that makes the Xth claim in the system
+        #[ink(message)]
+        pub fn set_reward(&mut self, on: u8, interval: u128, amount: Balance) -> Result<(), Error> {
+            let caller = Self::env().caller();
+            if self.reward_root == caller {
+                // proceed to set the reward program paramteters
+                self.reward_on = on;
+                self.reward_interval = interval;
+                self.reward_amount = amount;
+            }
+            else {
+                // error PermissionDenied
+                return Err(Error::PermissionDenied)
+            }
+            
+            Ok(())
+        }
+
+        // 🟢 21 ADD COIN TO REWARD ACCOUNT [RESTRICTED: ROOT]
+        #[ink(message, payable)]
+        pub fn add_reward_balance(&mut self) -> Result<(), Error> {
+            let caller = Self::env().caller();
+            if self.reward_root == caller {
+                // add the paid in value to the reward_balance
+                let staked: Balance = self.env().transferred_value();
+                let newbalance: Balance = self.reward_balance.saturating_add(staked);
+                self.reward_balance = newbalance;
+            }
+            else {
+                // error PermissionDenied
+                return Err(Error::PermissionDenied)
+            }
+            
+            Ok(())
+        }
+
+
+        // 🟢 22 RETRIEVE COIN FROM REWARD ACCOUNT [RESTRICTED: ROOT]
+        // turns reward program off and returns funds to the root
+        #[ink(message)]
+        pub fn shut_down_reward(&mut self) -> Result<(), Error> {
+            let caller = Self::env().caller();
+            if self.reward_root == caller {
+                // set the reward program to off
+                self.reward_on = 0;
+                // refund the coin to the reward root
+                // Check that there is a nonzero balance on the contract > existential deposit
+                if self.env().balance() > 10 && self.reward_balance > 0 {
+                    // pay the root the reward_balance minus 10
+                    let payout: Balance = self.reward_balance.saturating_sub(10);
+                    if self.env().transfer(caller, payout).is_err() {
+                        return Err(Error::PayoutFailed);
+                    }
+                }
+                // if the balance is < 10, Error (ZeroBalance)
+                else {
+                    return Err(Error::ZeroBalance);
+                }
+            }
+            else {
+                // error PermissionDenied
+                return Err(Error::PermissionDenied)
+            }
+            
+            Ok(())
+        }
+
+
+        // 🟢 23 GET CURRENT REWARD BALANCE AND SETTINGS [RESTRICTED: ROOT]
+        #[ink(message)]
+        pub fn get_reward_settings(&self) -> RewardSettings {
+            let caller = Self::env().caller();
+            let mut results = RewardSettings::default();
+            if self.reward_root == caller {
+                let settings = RewardSettings {
+                    reward_on: self.reward_on,
+                    reward_root_set: self.reward_root_set,
+                    reward_root: self.reward_root,
+                    reward_interval: self.reward_interval,
+                    reward_amount: self.reward_amount,
+                    reward_balance: self.reward_balance,
+                    reward_payouts: self.reward_payouts,
+                    claim_counter: self.claim_counter,
+                };
+                results = settings;
+            }
+
+            results
         }
 
         // END OF MESSAGE LIST

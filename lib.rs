@@ -1126,6 +1126,20 @@ mod geode_social {
             let current_settings = self.account_settings_map.get(&caller).unwrap_or_default();
             let oldname = current_settings.username;
 
+            // check that this user has not updated their settings in 24 hours
+            let time_since_last_update = self.env().block_timestamp().saturating_sub(current_settings.last_update);
+            if time_since_last_update < 86400000 {
+                // send an error that interest cannot be updated so soon
+                return Err(Error::CannotUpdateInterestsWithin24Hours)
+            }
+
+            // check that the set of interest keywords and username are not too long
+            // maximum length is 180 which would give us 90 characters
+            if my_interests.len() > 180 || my_username.len() > 180 {
+                // intrests are too long, send an error
+                return Err(Error::DataTooLarge)
+            }
+
             // prepare the update
             let settings_update: Settings = Settings {
                 username: my_username.clone(),
@@ -1135,63 +1149,41 @@ mod geode_social {
                 last_update: self.env().block_timestamp()
             };
             
-            // check that this user has not updated their settings in 24 hours
-            let time_since_last_update = self.env().block_timestamp().saturating_sub(current_settings.last_update);
-            if time_since_last_update < 86400000 {
-                // send an error that interest cannot be updated so soon
-                return Err(Error::CannotUpdateInterestsWithin24Hours)
-            }
-            else {
-                // check that the set of interest keywords and username are not too long
-                // maximum length is 180 which would give us 90 characters
-                if my_interests.len() > 180 || my_username.len() > 180 {
-                    // intrests are too long, send an error
-                    return Err(Error::DataTooLarge)
+            // check that the username is not taken by someone else...
+            // if the username is in use already...
+            if self.username_map.contains(username_clone1) {
+                // get the account that owns that username
+                let current_owner = self.username_map.get(&username_clone2).unwrap();
+                // if the caller owns that username, they are not changing it, update the storage maps
+                if current_owner == caller {
+                    // update their settings
+                    self.account_settings_map.insert(&caller, &settings_update);     
                 }
                 else {
-                    // check that the username is not taken by someone else...
-                    // if the username is in use already...
-                    if self.username_map.contains(username_clone1) {
-                        // get the account that owns that username
-                        let current_owner = self.username_map.get(&username_clone2).unwrap();
-                        // if the caller owns that username, they are not changing it, update the storage maps
-                        if current_owner == caller {
-                            // update their settings
-                            self.account_settings_map.insert(&caller, &settings_update); 
-
-                            // Emit an event to register the update to the chain
-                            Self::env().emit_event(SettingsUpdated {
-                                from: caller,
-                                username: my_username,
-                                interests: my_interests,
-                            });    
-                        }
-                        else {
-                            // if the username belongs to someone else, send an error UsernameTaken
-                            return Err(Error::UsernameTaken)
-                        }
-                    }
-                    else {
-                        // if the username is not taken... this user might be changing usernames
-                        // update the settings storage map
-                        self.account_settings_map.insert(&caller, &settings_update);
-                        // then update the username map
-                        self.username_map.insert(&username_clone2, &caller);
-                        // release the old username if the oldname it exists for this caller
-                        let oldowner = self.username_map.get(&oldname.clone()).unwrap();
-                        if self.username_map.contains(oldname.clone()) && oldowner == caller {
-                            self.username_map.remove(oldname);
-                        }
-
-                        // Emit an event to register the update to the chain
-                        Self::env().emit_event(SettingsUpdated {
-                            from: caller,
-                            username: my_username,
-                            interests: my_interests,
-                        }); 
-                    }
+                    // if the username belongs to someone else, send an error UsernameTaken
+                    return Err(Error::UsernameTaken)
                 }
             }
+            else {
+                // if the username is not taken... this user might be changing usernames
+                // update the settings storage map
+                self.account_settings_map.insert(&caller, &settings_update);
+                // then update the username map
+                self.username_map.insert(&username_clone2, &caller);
+                // release the old username if the oldname it exists for this caller
+                let oldowner = self.username_map.get(&oldname.clone()).unwrap();
+                if self.username_map.contains(oldname.clone()) && oldowner == caller {
+                    self.username_map.remove(oldname);
+                }
+            }
+
+            // Emit an event to register the update to the chain
+            Self::env().emit_event(SettingsUpdated {
+                from: caller,
+                username: my_username,
+                interests: my_interests,
+            }); 
+
             Ok(())
         }
 

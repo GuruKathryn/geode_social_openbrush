@@ -351,6 +351,7 @@ mod geode_social {
         from: AccountId,
         #[ink(topic)]
         username: Vec<u8>,
+        #[ink(topic)]
         interests: Vec<u8>,
     }
 
@@ -1117,10 +1118,6 @@ mod geode_social {
             max_messages_in_my_feed: u128,
             max_messages_in_my_paid_feed: u128,
         ) -> Result<(), Error> {
-
-            let username_clone1 = my_username.clone();
-            let username_clone2 = my_username.clone();
-
             // get the current settings for this caller and prepare the update
             let caller = Self::env().caller();
             let current_settings = self.account_settings_map.get(&caller).unwrap_or_default();
@@ -1148,34 +1145,30 @@ mod geode_social {
                 max_paid_feed: max_messages_in_my_paid_feed,
                 last_update: self.env().block_timestamp()
             };
-            
-            // check that the username is not taken by someone else...
-            // if the username is in use already...
-            if self.username_map.contains(username_clone1) {
-                // get the account that owns that username
-                let current_owner = self.username_map.get(&username_clone2).unwrap();
-                // if the caller owns that username, they are not changing it, update the storage maps
-                if current_owner == caller {
-                    // update their settings
-                    self.account_settings_map.insert(&caller, &settings_update);     
-                }
-                else {
+
+            // If, they are changing their username...
+            if my_username != oldname {
+
+                // they are not, by definition, the current owner of the new name
+                // so if the new name exists in the the username map, it is taken, send error
+                if self.username_map.contains(my_username.clone()) {
                     // if the username belongs to someone else, send an error UsernameTaken
                     return Err(Error::UsernameTaken)
                 }
-            }
-            else {
-                // if the username is not taken... this user might be changing usernames
-                // update the settings storage map
-                self.account_settings_map.insert(&caller, &settings_update);
-                // then update the username map
-                self.username_map.insert(&username_clone2, &caller);
-                // release the old username if the oldname it exists for this caller
-                let oldowner = self.username_map.get(&oldname.clone()).unwrap();
-                if self.username_map.contains(oldname.clone()) && oldowner == caller {
-                    self.username_map.remove(oldname);
+                else {
+                    // if the new name is not in the username map, they can have it
+                    // then update the username map
+                    self.username_map.insert(&my_username.clone(), &caller);
+                    // release the old username if the oldname it exists in the map
+                    if self.username_map.contains(oldname.clone()) {
+                        self.username_map.remove(oldname);
+                    }
                 }
+
             }
+            
+            // update their settings
+            self.account_settings_map.insert(&caller, &settings_update); 
 
             // Emit an event to register the update to the chain
             Self::env().emit_event(SettingsUpdated {
